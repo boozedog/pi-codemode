@@ -10,6 +10,7 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { typeCheck, type TypeCheckError } from "./type-checker.js";
 import type { ToolBindings } from "./tool-bindings.js";
+import { DenoExecutor } from "./executor/index.js";
 
 export interface ExecutionResult {
 	success: boolean;
@@ -252,15 +253,12 @@ Return a value to include it in the result. Type errors are returned for correct
 }
 
 /**
- * Execute TypeScript code with type checking.
- *
- * Phase 2: Type checking only
- * Phase 3: Will add Deno sandbox execution
+ * Execute TypeScript code with type checking and Deno sandbox execution.
  */
 async function executeCode(
 	code: string,
 	typeDefs: string,
-	_bindings: ToolBindings,
+	bindings: ToolBindings,
 	options?: {
 		timeout?: number;
 		maxOutputSize?: number;
@@ -287,25 +285,49 @@ async function executeCode(
 		};
 	}
 
-	// Phase 3: Here we would execute the code in Deno sandbox
-	// For Phase 2, we return a mock success with a note
-	const logs: string[] = [];
-
 	// Simulate execution progress
 	if (options?.onUpdate) {
 		options.onUpdate({
-			content: [{ type: "text", text: "Code type-checked successfully..." }],
+			content: [{ type: "text", text: "Code type-checked successfully, executing..." }],
 			details: { progress: true },
 		});
 	}
 
-	// TODO: Phase 3 - Deno execution
-	// For now, return a placeholder result
-	return {
-		success: true,
-		errors: [],
-		logs,
-		returnValue: "(Code execution not yet implemented - Phase 3)",
-		elapsedMs: performance.now() - start,
-	};
+	// Step 2: Execute in Deno sandbox
+	try {
+		const executor = new DenoExecutor({ timeout: options?.timeout });
+		await executor.init();
+
+		// Convert bindings to the provider format expected by DenoExecutor
+		const providers = [
+			{
+				name: "codemode",
+				fns: bindings as Record<string, (...args: unknown[]) => Promise<unknown>>,
+			},
+		];
+
+		const result = await executor.execute(code, providers);
+		await executor.shutdown();
+
+		return {
+			success: !result.error,
+			errorKind: result.error ? "runtime" : undefined,
+			errors: result.error
+				? [{ line: 0, col: 0, message: result.error }]
+				: [],
+			logs: result.logs ?? [],
+			returnValue: result.result,
+			elapsedMs: performance.now() - start,
+		};
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		return {
+			success: false,
+			errorKind: "runtime",
+			errors: [{ line: 0, col: 0, message }],
+			logs: [],
+			returnValue: undefined,
+			elapsedMs: performance.now() - start,
+		};
+	}
 }
