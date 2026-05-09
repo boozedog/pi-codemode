@@ -7,7 +7,7 @@ import { Type } from "@sinclair/typebox";
 import type { ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { typeCheck, type TypeCheckError } from "./type-checker.js";
 import type { ToolBindings } from "./tool-bindings.js";
-import { createExecutor } from "./executor/index.js";
+import { createExecutor, type ExecutorFactoryOptions } from "./executor/index.js";
 
 export interface ExecutionResult {
   success: boolean;
@@ -32,13 +32,15 @@ export interface ExecuteToolOptions {
   timeout?: number;
   /** Max output size in bytes (default: 50KB) */
   maxOutputSize?: number;
+  /** Sandbox executor selection. Defaults to QuickJS. */
+  executor?: ExecutorFactoryOptions;
 }
 
 /**
  * Create the execute_tools tool definition.
  */
 export function createExecuteTool(options: ExecuteToolOptions): ToolDefinition {
-  const { typeDefs, bindings, timeout, maxOutputSize } = options;
+  const { typeDefs, bindings, timeout, maxOutputSize, executor } = options;
 
   return {
     name: "execute_tools",
@@ -90,6 +92,7 @@ Return a value to include it in the result. Type errors are returned for correct
         signal,
         onUpdate,
         strings: params.strings,
+        executor,
       });
 
       if (!result.success) {
@@ -230,7 +233,7 @@ Return a value to include it in the result. Type errors are returned for correct
 }
 
 /**
- * Execute TypeScript code with type checking and Deno sandbox execution.
+ * Execute TypeScript code with type checking and configured sandbox execution.
  */
 async function executeCode(
   code: string,
@@ -245,6 +248,7 @@ async function executeCode(
       details?: unknown;
     }) => void;
     strings?: Record<string, string>;
+    executor?: ExecutorFactoryOptions;
   },
 ): Promise<ExecutionResult> {
   const start = performance.now();
@@ -272,7 +276,11 @@ async function executeCode(
 
   // Step 2: Execute in the configured sandbox. QuickJS is the MVP default.
   try {
-    const executor = createExecutor({ kind: "quickjs", timeout: options?.timeout });
+    const executorOptions: ExecutorFactoryOptions = {
+      ...options?.executor,
+      timeout: options?.timeout ?? options?.executor?.timeout,
+    };
+    const executor = createExecutor(executorOptions);
 
     // Convert bindings to the provider format expected by the executor
     const providers = [
@@ -296,7 +304,12 @@ async function executeCode(
       elapsedMs: performance.now() - start,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    const configuredKind = options?.executor?.kind ?? "quickjs";
+    const message =
+      rawMessage.includes("ENOENT") || rawMessage.includes("spawn")
+        ? `Configured executor '${configuredKind}' is unavailable: ${rawMessage}`
+        : rawMessage;
     return {
       success: false,
       errorKind: "runtime",

@@ -4,7 +4,7 @@
 // TypeScript code against typed tool APIs.
 //
 // This is a new implementation based on Cloudflare Codemode patterns,
-// adapted for Pi's native tool system with Deno sandboxing.
+// adapted for Pi's native tool system with QuickJS sandboxing.
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { initTypeChecker } from "./type-checker.js";
@@ -17,16 +17,7 @@ import {
 import { createExecuteTool } from "./execute-tool.js";
 import { createMcpClient, type McpClient } from "./mcp-client.js";
 import { createToolBindings } from "./tool-bindings.js";
-
-interface CodemodeConfig {
-  executor?: {
-    type: "deno" | "node-vm";
-    timeoutMs?: number;
-  };
-  mcp?: {
-    servers?: Record<string, unknown>;
-  };
-}
+import { loadConfig } from "./config.js";
 
 export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Configuration ---
@@ -48,7 +39,14 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   initTypeChecker();
 
   // --- Load configuration ---
-  const config = loadConfig();
+  let config;
+  try {
+    config = loadConfig();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`Codemode: config load failed: ${message}`);
+    config = { executor: { type: "quickjs" as const, timeoutMs: 120_000 } };
+  }
 
   // --- Load MCP server info ---
   try {
@@ -90,6 +88,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     typeDefs: typeCheckerTypeDefs,
     bindings: getBindings(process.cwd()), // Initial bindings (will be recreated per call)
     timeout: config.executor?.timeoutMs ?? 120_000,
+    executor: { kind: config.executor?.type ?? "quickjs" },
   });
 
   pi.registerTool(executeTool);
@@ -174,21 +173,6 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 interface ExtensionContext {
   ui: {
     notify(message: string, type: "info" | "warning" | "error" | "success"): void;
-  };
-}
-
-/**
- * Load codemode configuration from global and project config files.
- */
-function loadConfig(): CodemodeConfig {
-  // TODO: Phase 5 - Implement config loading from:
-  // - ~/.pi/agent/codemode.json (global)
-  // - $PROJECT/.pi/codemode.json (project)
-  return {
-    executor: {
-      type: "deno",
-      timeoutMs: 120_000,
-    },
   };
 }
 

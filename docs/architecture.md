@@ -34,6 +34,14 @@ Pi plugin
 
 Deno remains an optional/future executor behind the same interface. Node VM is intentionally skipped for now.
 
+## Executor choices
+
+QuickJS is the default MVP executor (`executor.type: "quickjs"`). It runs code in an embedded QuickJS runtime with an explicit host bridge and no direct Node, filesystem, environment, network, or subprocess globals. Tool access is limited to injected globals (`codemode`, `$`, `shell`, `print`, and `π`).
+
+Deno is still available as an optional executor (`executor.type: "deno"`) for future compatibility and experiments, but it is dormant unless selected in configuration. Configuration is loaded from `~/.pi/agent/codemode.json` and `$PROJECT/.pi/codemode.json`, with project settings taking precedence. When selected, Deno stays behind the shared executor interface and launches a no-permission subprocess. If the configured executable is missing or cannot be spawned, `execute_tools` reports a clear configured-executor-unavailable runtime error instead of silently falling back.
+
+Node VM is not an MVP target and should not be added as an executor path.
+
 ## Cloudflare codemode findings
 
 The project uses `@cloudflare/codemode` as reusable core, not as an AI SDK adapter.
