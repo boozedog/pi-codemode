@@ -29,6 +29,7 @@
 	},
 	"dependencies": {
 		"@cloudflare/codemode": "0.3.4",
+		"just-bash": "^2.14.4",
 		"minisearch": "^7.2.0"
 	},
 	"peerDependencies": {
@@ -37,7 +38,7 @@
 		"@sinclair/typebox": "*"
 	},
 	"devDependencies": {
-		"@types/node": "^22.0.0",
+		"@types/node": "^22.19.17",
 		"typescript": "^5.9.3"
 	}
 }

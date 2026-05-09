@@ -12,6 +12,7 @@ import {
 } from "@cloudflare/codemode";
 import type { JSONSchema7 } from "json-schema";
 import type { McpServerInfo } from "./search.js";
+import { generateShellTypeDefs } from "./shell.js";
 
 // Built-in tool descriptors using JSON Schema (for Cloudflare type generation)
 const builtinToolDescriptors: Record<
@@ -152,6 +153,8 @@ declare function print(...args: any[]): void;
 
 /** Named string constants passed via the 'strings' parameter. Use for file content that's hard to quote in JS. */
 declare const π: Readonly<Record<string, string>>;
+
+${generateShellTypeDefs()}
 `;
 }
 

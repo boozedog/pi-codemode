@@ -115,6 +115,11 @@ export class DenoExecutor implements Executor {
 			for (const [name, fn] of Object.entries(provider.fns)) {
 				const key = provider.name ? `${provider.name}.${name}` : name;
 				allFns[key] = fn;
+				// The default codemode provider is exposed both as codemode.foo() and
+				// bare host calls from the bootstrap (foo, $, shell).
+				if (provider.name === "codemode") {
+					allFns[name] = fn;
+				}
 			}
 		}
 
@@ -292,7 +297,13 @@ export class DenoExecutor implements Executor {
 		const __filename = fileURLToPath(import.meta.url);
 		const __dirname = dirname(__filename);
 
-		return readFile(join(__dirname, "deno-bootstrap.ts"), "utf-8");
+		try {
+			// In built packages, TypeScript emits deno-bootstrap.js next to this file.
+			return await readFile(join(__dirname, "deno-bootstrap.js"), "utf-8");
+		} catch {
+			// In source/test runs, the .ts file may be available.
+			return readFile(join(__dirname, "deno-bootstrap.ts"), "utf-8");
+		}
 	}
 
 	/**

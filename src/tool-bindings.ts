@@ -5,6 +5,7 @@
 
 import type { AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
 import { searchTools } from "./search.js";
+import { executeJustBash } from "./shell.js";
 import { generateToolSignature, generateParamSummary } from "./type-generator.js";
 import type { McpServerInfo } from "./search.js";
 
@@ -15,6 +16,8 @@ export interface ToolBindings {
 	edit(params: { path: string; oldText: string; newText: string }): Promise<string>;
 	search_tools(params: { query: string }): Promise<string>;
 	describe_tools(params: { namespace: string; tool?: string }): Promise<string>;
+	$(params: { parts: string[]; values: unknown[] }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+	shell(params: { command: string; cwd?: string; timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
 	progress(message: string): void;
 	/** MCP server namespaces are added dynamically */
 	[serverNamespace: string]: unknown;
@@ -39,8 +42,7 @@ export interface ToolBindingsOptions {
  * For Phase 2, we provide stub implementations that demonstrate the structure.
  */
 export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
-	const { cwd: _cwd, mcpServers, signal, onUpdate } = options;
-	void _cwd; // Will be used in Phase 3 for Pi tool execution
+	const { cwd, mcpServers, signal, onUpdate } = options;
 
 	// For Phase 2, we're building the structure.
 	// In Phase 3, these will be actual Pi tool calls via the host bridge.
@@ -66,6 +68,32 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
 
 		async search_tools(params) {
 			return searchTools(params.query);
+		},
+
+		async $(params) {
+			if (signal?.aborted) throw new Error("Execution cancelled");
+			let command = "";
+			for (let i = 0; i < params.parts.length; i++) {
+				command += params.parts[i];
+				if (i < params.values.length) {
+					const value = params.values[i];
+					if (typeof value === "string") {
+						command += "'" + value.replace(/'/g, "'\\''") + "'";
+					} else {
+						command += String(value);
+					}
+				}
+			}
+			return executeJustBash(cwd, command.trim());
+		},
+
+		async shell(params) {
+			if (signal?.aborted) throw new Error("Execution cancelled");
+			let command = params.command;
+			if (params.cwd && params.cwd !== "/workspace") {
+				command = `cd '${params.cwd.replace(/'/g, "'\\''")}' && ${command}`;
+			}
+			return executeJustBash(cwd, command, { timeoutMs: params.timeoutMs });
 		},
 
 		async describe_tools(params) {
