@@ -15,6 +15,7 @@ import {
 	generateMcpSummaryForPrompt,
 } from "./type-generator.js";
 import { createExecuteTool } from "./execute-tool.js";
+import { createMcpClient, type McpClient } from "./mcp-client.js";
 import { createToolBindings } from "./tool-bindings.js";
 
 interface CodemodeConfig {
@@ -40,6 +41,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
 	let enabled = true;
 	let originalTools: string[] = [];
+	let mcpClient: McpClient | undefined;
 	let mcpServers: McpServerInfo[] = [];
 
 	// Initialize the TypeScript type checker (pre-loads lib files, ~50ms)
@@ -49,8 +51,14 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 	const config = loadConfig();
 
 	// --- Load MCP server info ---
-	// TODO: Phase 5 - Load from pi-mcp-adapter or config
-	mcpServers = []; // Will be populated in Phase 5
+	try {
+		mcpClient = createMcpClient();
+		mcpServers = mcpClient.getServers();
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		console.warn(`Codemode: MCP init failed: ${message}`);
+		mcpServers = [];
+	}
 
 	// --- Build type definitions ---
 	const builtinTypeDefs = generateBuiltinTypeDefs();
@@ -66,6 +74,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 		return createToolBindings({
 			cwd,
 			mcpServers,
+			mcpClient,
 			signal,
 			onUpdate,
 		});
@@ -113,8 +122,9 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 	// --- Shutdown ---
 
 	pi.on("session_shutdown", async () => {
-		// Cleanup any active executors
-		// TODO: Phase 3 - shutdown executors
+		if (mcpClient) {
+			await mcpClient.shutdown();
+		}
 	});
 
 	// --- System prompt injection ---

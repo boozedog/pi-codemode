@@ -11,6 +11,7 @@ declare module "@mariozechner/pi-coding-agent" {
 		getAllTools(): ToolInfo[];
 		setActiveTools(tools: string[]): void;
 		on(event: string, handler: EventHandler): void;
+		exec(cmd: string, args?: string[], options?: unknown): Promise<{ code: number; stdout: string; stderr: string }>;
 	}
 
 	export interface FlagOptions {
@@ -55,6 +56,15 @@ declare module "@mariozechner/pi-coding-agent" {
 		ui: {
 			notify(message: string, type: "info" | "warning" | "error" | "success"): void;
 		};
+	}
+
+	export interface ExtensionUIContext extends ExtensionContext {
+		confirm(title: string, message: string): Promise<boolean>;
+	}
+
+	export interface ModelRegistry {
+		getAvailable(): any[];
+		getApiKeyAndHeaders(model: unknown): Promise<{ ok: true; apiKey?: string; headers?: Record<string, string> } | { ok: false; error: string }>;
 	}
 
 	type EventHandler = (event: { systemPrompt: string }, ctx: ExtensionContext) => Promise<void | { systemPrompt?: string }>;

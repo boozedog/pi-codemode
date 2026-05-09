@@ -7,6 +7,7 @@ import type { AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
 import { searchTools } from "./search.js";
 import { executeJustBash } from "./shell.js";
 import { generateToolSignature, generateParamSummary } from "./type-generator.js";
+import type { McpClient } from "./mcp-client.js";
 import type { McpServerInfo } from "./search.js";
 
 /** The shape the sandbox code sees at runtime */
@@ -27,6 +28,8 @@ export interface ToolBindingsOptions {
 	cwd: string;
 	/** MCP server info for tool discovery */
 	mcpServers?: McpServerInfo[];
+	/** MCP client for lazy tool execution */
+	mcpClient?: McpClient;
 	/** Abort signal for cancellation */
 	signal?: AbortSignal;
 	/** Callback for streaming progress to the UI */
@@ -42,7 +45,7 @@ export interface ToolBindingsOptions {
  * For Phase 2, we provide stub implementations that demonstrate the structure.
  */
 export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
-	const { cwd, mcpServers, signal, onUpdate } = options;
+	const { cwd, mcpServers, mcpClient, signal, onUpdate } = options;
 
 	// For Phase 2, we're building the structure.
 	// In Phase 3, these will be actual Pi tool calls via the host bridge.
@@ -170,8 +173,8 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
 			for (const tool of server.tools) {
 				serverProxy[tool.name] = async (args?: Record<string, unknown>) => {
 					if (signal?.aborted) throw new Error("Execution cancelled");
-					// TODO: Phase 5 - MCP tool execution via host bridge
-					return `[MCP: ${server.namespace}.${tool.name}(${JSON.stringify(args)}) - Phase 5 implementation pending]`;
+					if (!mcpClient) throw new Error("MCP client is not available");
+					return mcpClient.call(server.namespace, tool.name, args);
 				};
 			}
 
@@ -182,7 +185,8 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
 					// Return a function that will attempt the call (lazy connect)
 					return async (args?: Record<string, unknown>) => {
 						if (signal?.aborted) throw new Error("Execution cancelled");
-						return `[MCP: ${server.namespace}.${prop}(${JSON.stringify(args)}) - lazy connect - Phase 5 implementation pending]`;
+						if (!mcpClient) throw new Error("MCP client is not available");
+						return mcpClient.call(server.namespace, prop, args);
 					};
 				},
 			});
