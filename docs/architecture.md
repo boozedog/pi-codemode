@@ -86,9 +86,7 @@ The executor should:
 The critical spike is high-concurrency async host calls:
 
 ```ts
-const results = await Promise.all(
-  Array.from({ length: 100 }, (_, i) => codemode.echo({ i }))
-);
+const results = await Promise.all(Array.from({ length: 100 }, (_, i) => codemode.echo({ i })));
 return results;
 ```
 

@@ -10,201 +10,193 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { initTypeChecker } from "./type-checker.js";
 import { buildSearchIndex, type McpServerInfo } from "./search.js";
 import {
-	generateBuiltinTypeDefs,
-	generateMcpServerTypeDefs,
-	generateMcpSummaryForPrompt,
+  generateBuiltinTypeDefs,
+  generateMcpServerTypeDefs,
+  generateMcpSummaryForPrompt,
 } from "./type-generator.js";
 import { createExecuteTool } from "./execute-tool.js";
 import { createMcpClient, type McpClient } from "./mcp-client.js";
 import { createToolBindings } from "./tool-bindings.js";
 
 interface CodemodeConfig {
-	executor?: {
-		type: "deno" | "node-vm";
-		timeoutMs?: number;
-	};
-	mcp?: {
-		servers?: Record<string, unknown>;
-	};
+  executor?: {
+    type: "deno" | "node-vm";
+    timeoutMs?: number;
+  };
+  mcp?: {
+    servers?: Record<string, unknown>;
+  };
 }
 
 export default function codemodeExtension(pi: ExtensionAPI) {
-	// --- Configuration ---
+  // --- Configuration ---
 
-	pi.registerFlag("no-codemode", {
-		description: "Disable code mode (use normal tools)",
-		type: "boolean",
-		default: false,
-	});
+  pi.registerFlag("no-codemode", {
+    description: "Disable code mode (use normal tools)",
+    type: "boolean",
+    default: false,
+  });
 
-	// --- State ---
+  // --- State ---
 
-	let enabled = true;
-	let originalTools: string[] = [];
-	let mcpClient: McpClient | undefined;
-	let mcpServers: McpServerInfo[] = [];
+  let enabled = true;
+  let originalTools: string[] = [];
+  let mcpClient: McpClient | undefined;
+  let mcpServers: McpServerInfo[] = [];
 
-	// Initialize the TypeScript type checker (pre-loads lib files, ~50ms)
-	initTypeChecker();
+  // Initialize the TypeScript type checker (pre-loads lib files, ~50ms)
+  initTypeChecker();
 
-	// --- Load configuration ---
-	const config = loadConfig();
+  // --- Load configuration ---
+  const config = loadConfig();
 
-	// --- Load MCP server info ---
-	try {
-		mcpClient = createMcpClient();
-		mcpServers = mcpClient.getServers();
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		console.warn(`Codemode: MCP init failed: ${message}`);
-		mcpServers = [];
-	}
+  // --- Load MCP server info ---
+  try {
+    mcpClient = createMcpClient();
+    mcpServers = mcpClient.getServers();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`Codemode: MCP init failed: ${message}`);
+    mcpServers = [];
+  }
 
-	// --- Build type definitions ---
-	const builtinTypeDefs = generateBuiltinTypeDefs();
-	const mcpTypeDefs = generateMcpServerTypeDefs(mcpServers);
-	const typeCheckerTypeDefs = builtinTypeDefs + "\n" + mcpTypeDefs;
-	const mcpSummary = generateMcpSummaryForPrompt(mcpServers);
+  // --- Build type definitions ---
+  const builtinTypeDefs = generateBuiltinTypeDefs();
+  const mcpTypeDefs = generateMcpServerTypeDefs(mcpServers);
+  const typeCheckerTypeDefs = builtinTypeDefs + "\n" + mcpTypeDefs;
+  const mcpSummary = generateMcpSummaryForPrompt(mcpServers);
 
-	// --- Create tool bindings factory ---
-	function getBindings(cwd: string, signal?: AbortSignal, onUpdate?: (update: {
-		content: Array<{ type: string; text: string }>;
-		details?: unknown;
-	}) => void) {
-		return createToolBindings({
-			cwd,
-			mcpServers,
-			mcpClient,
-			signal,
-			onUpdate,
-		});
-	}
+  // --- Create tool bindings factory ---
+  function getBindings(
+    cwd: string,
+    signal?: AbortSignal,
+    onUpdate?: (update: {
+      content: Array<{ type: string; text: string }>;
+      details?: unknown;
+    }) => void,
+  ) {
+    return createToolBindings({
+      cwd,
+      mcpServers,
+      mcpClient,
+      signal,
+      onUpdate,
+    });
+  }
 
-	// --- Register execute_tools tool ---
+  // --- Register execute_tools tool ---
 
-	const executeTool = createExecuteTool({
-		typeDefs: typeCheckerTypeDefs,
-		bindings: getBindings(process.cwd()), // Initial bindings (will be recreated per call)
-		timeout: config.executor?.timeoutMs ?? 120_000,
-	});
+  const executeTool = createExecuteTool({
+    typeDefs: typeCheckerTypeDefs,
+    bindings: getBindings(process.cwd()), // Initial bindings (will be recreated per call)
+    timeout: config.executor?.timeoutMs ?? 120_000,
+  });
 
-	pi.registerTool(executeTool);
+  pi.registerTool(executeTool);
 
-	// --- Session lifecycle ---
+  // --- Session lifecycle ---
 
-	pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
-		const noCodemode = pi.getFlag("no-codemode") as boolean;
-		if (noCodemode) {
-			enabled = false;
-			ctx.ui.notify("Codemode disabled via --no-codemode", "info");
-			return;
-		}
+  pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
+    const noCodemode = pi.getFlag("no-codemode") as boolean;
+    if (noCodemode) {
+      enabled = false;
+      ctx.ui.notify("Codemode disabled via --no-codemode", "info");
+      return;
+    }
 
-		// Store original tool set for toggling
-		originalTools = pi.getActiveTools();
+    // Store original tool set for toggling
+    originalTools = pi.getActiveTools();
 
-		// Build search index over all Pi tools
-		const piTools = pi.getAllTools().map((t) => ({
-			name: t.name,
-			description: t.description,
-		}));
-		buildSearchIndex(piTools, mcpServers);
+    // Build search index over all Pi tools
+    const piTools = pi.getAllTools().map((t) => ({
+      name: t.name,
+      description: t.description,
+    }));
+    buildSearchIndex(piTools, mcpServers);
 
-		// Activate codemode: only execute_tools visible to LLM
-		activateCodemode();
+    // Activate codemode: only execute_tools visible to LLM
+    activateCodemode();
 
-		ctx.ui.notify(
-			"Codemode enabled — TypeScript tool execution active",
-			"info"
-		);
-	});
+    ctx.ui.notify("Codemode enabled — TypeScript tool execution active", "info");
+  });
 
-	// --- Shutdown ---
+  // --- Shutdown ---
 
-	pi.on("session_shutdown", async () => {
-		if (mcpClient) {
-			await mcpClient.shutdown();
-		}
-	});
+  pi.on("session_shutdown", async () => {
+    if (mcpClient) {
+      await mcpClient.shutdown();
+    }
+  });
 
-	// --- System prompt injection ---
+  // --- System prompt injection ---
 
-	pi.on("before_agent_start", async (event: { systemPrompt: string }) => {
-		if (!enabled) return;
+  pi.on("before_agent_start", async (event: { systemPrompt: string }) => {
+    if (!enabled) return;
 
-		const addition = generateSystemPromptAddition(
-			builtinTypeDefs,
-			mcpSummary
-		);
-		return {
-			systemPrompt: event.systemPrompt + "\n\n" + addition,
-		};
-	});
+    const addition = generateSystemPromptAddition(builtinTypeDefs, mcpSummary);
+    return {
+      systemPrompt: event.systemPrompt + "\n\n" + addition,
+    };
+  });
 
-	// --- Toggle command ---
+  // --- Toggle command ---
 
-	pi.registerCommand("codemode", {
-		description: "Toggle code mode on/off",
-		handler: async (_args: string[], ctx: ExtensionContext) => {
-			enabled = !enabled;
+  pi.registerCommand("codemode", {
+    description: "Toggle code mode on/off",
+    handler: async (_args: string[], ctx: ExtensionContext) => {
+      enabled = !enabled;
 
-			if (enabled) {
-				activateCodemode();
-				ctx.ui.notify("Codemode enabled", "info");
-			} else {
-				deactivateCodemode();
-				ctx.ui.notify("Codemode disabled — all tools available", "info");
-			}
-		},
-	});
+      if (enabled) {
+        activateCodemode();
+        ctx.ui.notify("Codemode enabled", "info");
+      } else {
+        deactivateCodemode();
+        ctx.ui.notify("Codemode disabled — all tools available", "info");
+      }
+    },
+  });
 
-	// --- Helpers ---
+  // --- Helpers ---
 
-	function activateCodemode() {
-		pi.setActiveTools(["execute_tools"]);
-		enabled = true;
-	}
+  function activateCodemode() {
+    pi.setActiveTools(["execute_tools"]);
+    enabled = true;
+  }
 
-	function deactivateCodemode() {
-		if (originalTools.length > 0) {
-			pi.setActiveTools(originalTools);
-		}
-		enabled = false;
-	}
+  function deactivateCodemode() {
+    if (originalTools.length > 0) {
+      pi.setActiveTools(originalTools);
+    }
+    enabled = false;
+  }
 }
 
 interface ExtensionContext {
-	ui: {
-		notify(
-			message: string,
-			type: "info" | "warning" | "error" | "success"
-		): void;
-	};
+  ui: {
+    notify(message: string, type: "info" | "warning" | "error" | "success"): void;
+  };
 }
 
 /**
  * Load codemode configuration from global and project config files.
  */
 function loadConfig(): CodemodeConfig {
-	// TODO: Phase 5 - Implement config loading from:
-	// - ~/.pi/agent/codemode.json (global)
-	// - $PROJECT/.pi/codemode.json (project)
-	return {
-		executor: {
-			type: "deno",
-			timeoutMs: 120_000,
-		},
-	};
+  // TODO: Phase 5 - Implement config loading from:
+  // - ~/.pi/agent/codemode.json (global)
+  // - $PROJECT/.pi/codemode.json (project)
+  return {
+    executor: {
+      type: "deno",
+      timeoutMs: 120_000,
+    },
+  };
 }
 
 /**
  * Generate the system prompt addition for codemode.
  */
-function generateSystemPromptAddition(
-	builtinTypeDefs: string,
-	mcpSummary: string
-): string {
-	return `\
+function generateSystemPromptAddition(builtinTypeDefs: string, mcpSummary: string): string {
+  return `\
 ## Code Mode
 
 You have access to tools through TypeScript code execution. Instead of calling tools

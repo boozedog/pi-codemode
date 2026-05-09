@@ -1,45 +1,53 @@
 {
-	"name": "@mariozechner/pi-codemode",
-	"version": "0.1.0",
-	"description": "Pi Codemode plugin - TypeScript code execution with sandboxed tools, just-bash shell, and MCP integration",
-	"keywords": [
-		"pi-package",
-		"pi-extension",
-		"codemode",
-		"typescript",
-		"sandbox"
-	],
-	"license": "MIT",
-	"type": "module",
-	"files": [
-		"dist/",
-		"src/",
-		"README.md",
-		"LICENSE"
-	],
-	"scripts": {
-		"build": "tsc",
-		"dev": "tsc --watch",
-		"test": "node --test dist/**/*.test.js"
-	},
-	"pi": {
-		"extensions": [
-			"./dist/index.js"
-		]
-	},
-	"dependencies": {
-		"@cloudflare/codemode": "0.3.4",
-		"just-bash": "^2.14.4",
-		"minisearch": "^7.2.0",
-		"pi-mcp-adapter": "^2.5.4"
-	},
-	"peerDependencies": {
-		"@mariozechner/pi-agent-core": "*",
-		"@mariozechner/pi-coding-agent": "*",
-		"@sinclair/typebox": "*"
-	},
-	"devDependencies": {
-		"@types/node": "^22.19.17",
-		"typescript": "^5.9.3"
-	}
+  "name": "@mariozechner/pi-codemode",
+  "version": "0.1.0",
+  "description": "Pi Codemode plugin - TypeScript code execution with sandboxed tools, just-bash shell, and MCP integration",
+  "keywords": [
+    "codemode",
+    "pi-extension",
+    "pi-package",
+    "sandbox",
+    "typescript"
+  ],
+  "license": "MIT",
+  "files": [
+    "dist/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "format": "oxfmt . --write",
+    "format:check": "oxfmt . --check",
+    "lint": "oxlint --deny warnings --vitest-plugin src",
+    "test": "vitest run",
+    "check": "npm run format:check && npm run lint && npm run build && npm test"
+  },
+  "dependencies": {
+    "@cloudflare/codemode": "0.3.4",
+    "just-bash": "^2.14.4",
+    "minisearch": "^7.2.0",
+    "pi-mcp-adapter": "^2.5.4",
+    "quickjs-emscripten": "^0.32.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.17",
+    "oxfmt": "^0.48.0",
+    "oxlint": "^1.63.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.5"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-agent-core": "*",
+    "@mariozechner/pi-coding-agent": "*",
+    "@sinclair/typebox": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  }
 }

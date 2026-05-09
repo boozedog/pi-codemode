@@ -5,157 +5,156 @@
 
 import { McpServerManager } from "pi-mcp-adapter/server-manager.js";
 import { loadMcpConfig } from "pi-mcp-adapter/config.js";
-import {
-	loadMetadataCache,
-	isServerCacheValid,
-} from "pi-mcp-adapter/metadata-cache.js";
+import { loadMetadataCache, isServerCacheValid } from "pi-mcp-adapter/metadata-cache.js";
 import { transformMcpContent } from "pi-mcp-adapter/tool-registrar.js";
 import type { McpContent } from "pi-mcp-adapter/types.js";
 import { generateParamSummary } from "./type-generator.js";
 import type { McpServerInfo, McpToolInfo } from "./search.js";
 
 export interface McpClient {
-	/** Get info about all known servers (from cache, no connections needed). */
-	getServers(): McpServerInfo[];
+  /** Get info about all known servers (from cache, no connections needed). */
+  getServers(): McpServerInfo[];
 
-	/** Call a tool on a specific server. Lazy-connects if needed. */
-	call(namespace: string, toolName: string, args?: Record<string, unknown>): Promise<string>;
+  /** Call a tool on a specific server. Lazy-connects if needed. */
+  call(namespace: string, toolName: string, args?: Record<string, unknown>): Promise<string>;
 
-	/** List all configured server names. */
-	listServers(): string[];
+  /** List all configured server names. */
+  listServers(): string[];
 
-	/** Clean up all connections. */
-	shutdown(): Promise<void>;
+  /** Clean up all connections. */
+  shutdown(): Promise<void>;
 
-	/** Whether any MCP servers are configured. */
-	readonly available: boolean;
+  /** Whether any MCP servers are configured. */
+  readonly available: boolean;
 }
 
 /**
  * Create a codemode-only MCP client.
  */
 export function createMcpClient(): McpClient {
-	const manager = new McpServerManager();
-	const config = loadMcpConfig();
-	const serverNames = Object.keys(config.mcpServers ?? {});
-	const cache = loadMetadataCache();
+  const manager = new McpServerManager();
+  const config = loadMcpConfig();
+  const serverNames = Object.keys(config.mcpServers ?? {});
+  const cache = loadMetadataCache();
 
-	const servers = new Map<string, McpServerInfo>();
-	const namespaceToServer = new Map<string, string>();
-	const connectedServers = new Set<string>();
+  const servers = new Map<string, McpServerInfo>();
+  const namespaceToServer = new Map<string, string>();
+  const connectedServers = new Set<string>();
 
-	for (const serverName of serverNames) {
-		const namespace = toNamespace(serverName);
-		namespaceToServer.set(namespace, serverName);
+  for (const serverName of serverNames) {
+    const namespace = toNamespace(serverName);
+    namespaceToServer.set(namespace, serverName);
 
-		const def = config.mcpServers[serverName];
-		const cached = cache?.servers?.[serverName];
+    const def = config.mcpServers[serverName];
+    const cached = cache?.servers?.[serverName];
 
-		if (cached && def && isServerCacheValid(cached, def)) {
-			servers.set(namespace, {
-				serverName,
-				namespace,
-				tools: cached.tools.map((t) => ({
-					name: t.name,
-					description: t.description,
-					inputSchema: t.inputSchema,
-				})),
-			});
-		} else {
-			servers.set(namespace, {
-				serverName,
-				namespace,
-				tools: [],
-			});
-		}
-	}
+    if (cached && def && isServerCacheValid(cached, def)) {
+      servers.set(namespace, {
+        serverName,
+        namespace,
+        tools: cached.tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema,
+        })),
+      });
+    } else {
+      servers.set(namespace, {
+        serverName,
+        namespace,
+        tools: [],
+      });
+    }
+  }
 
-	async function ensureConnected(namespace: string): Promise<void> {
-		const serverName = namespaceToServer.get(namespace);
-		if (!serverName) throw new Error(`Unknown MCP server namespace: "${namespace}"`);
-		if (connectedServers.has(serverName)) return;
+  async function ensureConnected(namespace: string): Promise<void> {
+    const serverName = namespaceToServer.get(namespace);
+    if (!serverName) throw new Error(`Unknown MCP server namespace: "${namespace}"`);
+    if (connectedServers.has(serverName)) return;
 
-		const def = config.mcpServers[serverName];
-		if (!def) throw new Error(`No config for MCP server: "${serverName}"`);
+    const def = config.mcpServers[serverName];
+    if (!def) throw new Error(`No config for MCP server: "${serverName}"`);
 
-		const connection = await manager.connect(serverName, def);
-		if (connection.status === "needs-auth") {
-			throw new Error(`MCP server "${serverName}" requires authentication. Configure/authenticate it in pi-mcp-adapter first.`);
-		}
+    const connection = await manager.connect(serverName, def);
+    if (connection.status === "needs-auth") {
+      throw new Error(
+        `MCP server "${serverName}" requires authentication. Configure/authenticate it in pi-mcp-adapter first.`,
+      );
+    }
 
-		const tools: McpToolInfo[] = connection.tools.map((t) => ({
-			name: t.name,
-			description: t.description,
-			inputSchema: t.inputSchema,
-		}));
-		servers.set(namespace, { serverName, namespace, tools });
-		connectedServers.add(serverName);
-	}
+    const tools: McpToolInfo[] = connection.tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.inputSchema,
+    }));
+    servers.set(namespace, { serverName, namespace, tools });
+    connectedServers.add(serverName);
+  }
 
-	return {
-		get available() {
-			return serverNames.length > 0;
-		},
+  return {
+    get available() {
+      return serverNames.length > 0;
+    },
 
-		getServers() {
-			return [...servers.values()];
-		},
+    getServers() {
+      return [...servers.values()];
+    },
 
-		async call(namespace, toolName, args) {
-			await ensureConnected(namespace);
+    async call(namespace, toolName, args) {
+      await ensureConnected(namespace);
 
-			const info = servers.get(namespace)!;
-			const connection = manager.getConnection(info.serverName);
-			if (!connection) {
-				throw new Error(`MCP server "${info.serverName}" failed to connect`);
-			}
+      const info = servers.get(namespace)!;
+      const connection = manager.getConnection(info.serverName);
+      if (!connection) {
+        throw new Error(`MCP server "${info.serverName}" failed to connect`);
+      }
 
-			manager.touch(info.serverName);
-			manager.incrementInFlight(info.serverName);
+      manager.touch(info.serverName);
+      manager.incrementInFlight(info.serverName);
 
-			try {
-				const result = await connection.client.callTool({
-					name: toolName,
-					arguments: args ?? {},
-				});
+      try {
+        const result = await connection.client.callTool({
+          name: toolName,
+          arguments: args ?? {},
+        });
 
-				const mcpContent = (result.content ?? []) as McpContent[];
-				const content = transformMcpContent(mcpContent);
-				const textParts = content
-					.filter((c): c is { type: "text"; text: string } => c.type === "text")
-					.map((c) => c.text);
+        const mcpContent = (result.content ?? []) as McpContent[];
+        const content = transformMcpContent(mcpContent);
+        const textParts = content
+          .filter((c): c is { type: "text"; text: string } => c.type === "text")
+          .map((c) => c.text);
 
-				const text = textParts.join("\n") || "(empty result)";
+        const text = textParts.join("\n") || "(empty result)";
 
-				if (result.isError) {
-					const toolInfo = info.tools.find((t) => t.name === toolName);
-					let errorMsg = `MCP tool error: codemode.${namespace}.${toolName}()\n\n${text}`;
-					if (toolInfo?.inputSchema) {
-						errorMsg += `\n\n${generateParamSummary(toolInfo.inputSchema)}`;
-					}
-					throw new Error(errorMsg);
-				}
+        if (result.isError) {
+          const toolInfo = info.tools.find((t) => t.name === toolName);
+          let errorMsg = `MCP tool error: codemode.${namespace}.${toolName}()\n\n${text}`;
+          if (toolInfo?.inputSchema) {
+            errorMsg += `\n\n${generateParamSummary(toolInfo.inputSchema)}`;
+          }
+          throw new Error(errorMsg);
+        }
 
-				return text;
-			} finally {
-				manager.decrementInFlight(info.serverName);
-			}
-		},
+        return text;
+      } finally {
+        manager.decrementInFlight(info.serverName);
+      }
+    },
 
-		listServers() {
-			return serverNames;
-		},
+    listServers() {
+      return serverNames;
+    },
 
-		async shutdown() {
-			await manager.closeAll();
-			connectedServers.clear();
-		},
-	};
+    async shutdown() {
+      await manager.closeAll();
+      connectedServers.clear();
+    },
+  };
 }
 
 function toNamespace(serverName: string): string {
-	let ns = serverName.replace(/-?mcp$/i, "").replace(/[^a-zA-Z0-9_$]/g, "_");
-	if (!ns) ns = "mcp";
-	if (/^[0-9]/.test(ns)) ns = "_" + ns;
-	return ns;
+  let ns = serverName.replace(/-?mcp$/i, "").replace(/[^a-zA-Z0-9_$]/g, "_");
+  if (!ns) ns = "mcp";
+  if (/^[0-9]/.test(ns)) ns = "_" + ns;
+  return ns;
 }
