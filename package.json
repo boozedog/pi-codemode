@@ -1,0 +1,43 @@
+{
+	"name": "@mariozechner/pi-codemode",
+	"version": "0.1.0",
+	"description": "Pi Codemode plugin - TypeScript code execution with sandboxed tools, just-bash shell, and MCP integration",
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"codemode",
+		"typescript",
+		"sandbox"
+	],
+	"license": "MIT",
+	"type": "module",
+	"files": [
+		"dist/",
+		"src/",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsc --watch",
+		"test": "node --test dist/**/*.test.js"
+	},
+	"pi": {
+		"extensions": [
+			"./dist/index.js"
+		]
+	},
+	"dependencies": {
+		"@cloudflare/codemode": "0.3.4",
+		"minisearch": "^7.2.0"
+	},
+	"peerDependencies": {
+		"@mariozechner/pi-agent-core": "*",
+		"@mariozechner/pi-coding-agent": "*",
+		"@sinclair/typebox": "*"
+	},
+	"devDependencies": {
+		"@types/node": "^22.0.0",
+		"typescript": "^5.9.3"
+	}
+}
