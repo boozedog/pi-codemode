@@ -8,9 +8,15 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { initTypeChecker } from "./type-checker.js";
-import { buildSearchIndex } from "./search.js";
+import { buildSearchIndex, type McpServerInfo } from "./search.js";
+import {
+	generateBuiltinTypeDefs,
+	generateMcpServerTypeDefs,
+	generateMcpSummaryForPrompt,
+} from "./type-generator.js";
+import { createExecuteTool } from "./execute-tool.js";
+import { createToolBindings } from "./tool-bindings.js";
 
-// Type-only imports for structures we'll implement
 interface CodemodeConfig {
 	executor?: {
 		type: "deno" | "node-vm";
@@ -34,17 +40,50 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
 	let enabled = true;
 	let originalTools: string[] = [];
+	let mcpServers: McpServerInfo[] = [];
 
 	// Initialize the TypeScript type checker (pre-loads lib files, ~50ms)
 	initTypeChecker();
 
 	// --- Load configuration ---
-	// TODO: Use config in Phase 2
-	void loadConfig();
+	const config = loadConfig();
+
+	// --- Load MCP server info ---
+	// TODO: Phase 5 - Load from pi-mcp-adapter or config
+	mcpServers = []; // Will be populated in Phase 5
+
+	// --- Build type definitions ---
+	const builtinTypeDefs = generateBuiltinTypeDefs();
+	const mcpTypeDefs = generateMcpServerTypeDefs(mcpServers);
+	const typeCheckerTypeDefs = builtinTypeDefs + "\n" + mcpTypeDefs;
+	const mcpSummary = generateMcpSummaryForPrompt(mcpServers);
+
+	// --- Create tool bindings factory ---
+	function getBindings(cwd: string, signal?: AbortSignal, onUpdate?: (update: {
+		content: Array<{ type: string; text: string }>;
+		details?: unknown;
+	}) => void) {
+		return createToolBindings({
+			cwd,
+			mcpServers,
+			signal,
+			onUpdate,
+		});
+	}
+
+	// --- Register execute_tools tool ---
+
+	const executeTool = createExecuteTool({
+		typeDefs: typeCheckerTypeDefs,
+		bindings: getBindings(process.cwd()), // Initial bindings (will be recreated per call)
+		timeout: config.executor?.timeoutMs ?? 120_000,
+	});
+
+	pi.registerTool(executeTool);
 
 	// --- Session lifecycle ---
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
 		const noCodemode = pi.getFlag("no-codemode") as boolean;
 		if (noCodemode) {
 			enabled = false;
@@ -60,19 +99,22 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 			name: t.name,
 			description: t.description,
 		}));
-		buildSearchIndex(piTools);
+		buildSearchIndex(piTools, mcpServers);
 
 		// Activate codemode: only execute_tools visible to LLM
 		activateCodemode();
 
-		ctx.ui.notify("Codemode enabled — TypeScript tool execution active", "info");
+		ctx.ui.notify(
+			"Codemode enabled — TypeScript tool execution active",
+			"info"
+		);
 	});
 
 	// --- Shutdown ---
 
 	pi.on("session_shutdown", async () => {
 		// Cleanup any active executors
-		// TODO: shutdown executors
+		// TODO: Phase 3 - shutdown executors
 	});
 
 	// --- System prompt injection ---
@@ -80,7 +122,10 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event: { systemPrompt: string }) => {
 		if (!enabled) return;
 
-		const addition = generateSystemPromptAddition();
+		const addition = generateSystemPromptAddition(
+			builtinTypeDefs,
+			mcpSummary
+		);
 		return {
 			systemPrompt: event.systemPrompt + "\n\n" + addition,
 		};
@@ -90,7 +135,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
 	pi.registerCommand("codemode", {
 		description: "Toggle code mode on/off",
-		handler: async (_args, ctx) => {
+		handler: async (_args: string[], ctx: ExtensionContext) => {
 			enabled = !enabled;
 
 			if (enabled) {
@@ -103,16 +148,10 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	// --- Register execute_tools tool (Phase 2) ---
-	// TODO: Import and register execute_tools
-	// const executeTool = createExecuteTool({ ... });
-	// pi.registerTool(executeTool);
-
 	// --- Helpers ---
 
 	function activateCodemode() {
-		// For now, we don't actually hide other tools since execute_tools isn't registered yet
-		// In Phase 2: pi.setActiveTools(["execute_tools"]);
+		pi.setActiveTools(["execute_tools"]);
 		enabled = true;
 	}
 
@@ -124,11 +163,20 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 	}
 }
 
+interface ExtensionContext {
+	ui: {
+		notify(
+			message: string,
+			type: "info" | "warning" | "error" | "success"
+		): void;
+	};
+}
+
 /**
  * Load codemode configuration from global and project config files.
  */
 function loadConfig(): CodemodeConfig {
-	// TODO: Implement config loading from:
+	// TODO: Phase 5 - Implement config loading from:
 	// - ~/.pi/agent/codemode.json (global)
 	// - $PROJECT/.pi/codemode.json (project)
 	return {
@@ -142,7 +190,10 @@ function loadConfig(): CodemodeConfig {
 /**
  * Generate the system prompt addition for codemode.
  */
-function generateSystemPromptAddition(): string {
+function generateSystemPromptAddition(
+	builtinTypeDefs: string,
+	mcpSummary: string
+): string {
 	return `\
 ## Code Mode
 
@@ -152,6 +203,12 @@ individually, write TypeScript code that calls multiple tools and returns just w
 Your code is **type-checked** against the tool API before execution. Type errors are
 returned for correction — no side effects occur until types are valid.
 
+### Built-in Tool API
+
+\`\`\`typescript
+${builtinTypeDefs}
+\`\`\`
+${mcpSummary ? "\n" + mcpSummary + "\n" : ""}
 ### How to use
 
 Call \`execute_tools\` with a TypeScript code body. Your code runs with the \`codemode.*\` API
@@ -160,7 +217,7 @@ available. Use \`print()\` to output intermediate results and \`return\` for the
 #### Parallel execution — use Promise.all for independent calls
 
 When you need data from multiple independent sources, **always** use \`Promise.all\` to
-run them concurrently.
+run them concurrently. This is significantly faster than sequential \`await\`s.
 
 \`\`\`typescript
 const [pkg, readme] = await Promise.all([
@@ -170,20 +227,85 @@ const [pkg, readme] = await Promise.all([
 return { deps: Object.keys(JSON.parse(pkg).dependencies || {}) };
 \`\`\`
 
+\`\`\`typescript
+const [gitStatus, gitBranch] = await Promise.all([
+  $\`git status --porcelain\`,
+  $\`git branch --show-current\`,
+]);
+return {
+  dirty: gitStatus.stdout.trim().length > 0,
+  branch: gitBranch.stdout.trim(),
+};
+\`\`\`
+
+#### Chaining — use output of one call to drive the next
+
+Chain calls when a later step depends on an earlier result.
+
+\`\`\`typescript
+// Step 1: Find files
+const result = await $\`find src -name '*.test.ts'\`;
+const files = result.stdout.split('\\n').filter(f => f.trim());
+
+// Step 2: Read all found files in parallel
+const contents = await Promise.all(
+  files.map(f => codemode.read({ path: f }))
+);
+
+// Step 3: Extract and aggregate
+const tests = contents.flatMap((c, i) => {
+  const matches = c.match(/it\\(['"](.+?)['"]/g) || [];
+  return matches.map(m => ({ file: files[i], test: m }));
+});
+return tests;
+\`\`\`
+
 #### Use search_tools and describe_tools for discovery
 
-- \`codemode.search_tools({ query: "file read" })\` — find tools by keyword
-- \`codemode.describe_tools({ namespace: "github" })\` — list tools in a namespace
-- \`codemode.describe_tools({ namespace: "github", tool: "search_issues" })\` — see parameters
+\`\`\`typescript
+// Step 1: Browse tools in a namespace
+const githubTools = await codemode.describe_tools({ namespace: "github" });
+print(githubTools);
+
+// Step 2: Get full parameter details for a specific tool
+const details = await codemode.describe_tools({
+  namespace: "github",
+  tool: "search_issues"
+});
+print(details);
+
+// Step 3: Call with the correct parameters
+const issues = await codemode.github.search_issues({ query: "is:open label:bug" });
+return issues;
+\`\`\`
+
+You can also use \`search_tools\` to find tools by keyword across all servers:
+\`\`\`typescript
+const found = await codemode.search_tools({ query: "slack direct messages" });
+print(found);
+\`\`\`
 
 ### String Constants (π)
 
-Pass file content via the \`strings\` parameter to avoid escaping issues:
+When writing or editing files with content that's hard to quote in JavaScript (backticks,
+\`\${}\` expressions, nested quotes, code blocks), pass the content via the \`strings\`
+parameter instead of embedding it in your code. The strings are available as \`π.keyName\`.
 
 \`\`\`typescript
 await codemode.write({ path: "run.sh", content: π.script });
+await codemode.edit({ path: "config.ts", oldText: π.oldConfig, newText: π.newConfig });
 \`\`\`
 
-**Note:** Codemode is currently in early development. Full tool API coming soon.
+**When to use \`strings\`:** File content with backticks, template literals, shell scripts,
+code that contains string literals, or any text where JS quoting would be awkward.
+
+**When NOT needed:** Simple strings, paths, short text without special characters.
+
+### Important
+- **Parallelize independent calls** — use \`Promise.all\` whenever calls don't depend on each other
+- **Chain dependent calls** — use the result of one call to determine what to call next
+- Both \`print()\` output and \`return\` values are included in the result
+- Type errors are caught before execution — fix them based on the error messages
+- Runtime errors are caught and returned — fix your code if you see one
 `;
 }
