@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const loadConfig = vi.fn(() => ({ executor: { type: "quickjs" as const, timeoutMs: 1234 } }));
 const shutdown = vi.fn(async () => {});
+const warmCache = vi.fn(async () => []);
 const getServers = vi.fn(() => []);
 const initShell = vi.fn(async () => {});
 
 vi.mock("./config.js", () => ({ loadConfig }));
 vi.mock("./mcp-client.js", () => ({
-  createMcpClient: vi.fn(() => ({ getServers, shutdown })),
+  createMcpClient: vi.fn(() => ({ getServers, warmCache, shutdown })),
 }));
 vi.mock("./shell.js", () => ({
   generateShellTypeDefs: vi.fn(() => ""),

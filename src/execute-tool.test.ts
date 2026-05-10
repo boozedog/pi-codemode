@@ -53,7 +53,8 @@ function createTheme(): Theme {
 const bindings = {
   read: async () => "",
   write: async () => undefined,
-  edit: async () => "",
+  replace_in_file: async () => "",
+  apply_patch: async () => "",
   search_tools: async () => "",
   list_mcp_servers: async () => "",
   list_tools: async () => "",
@@ -182,7 +183,7 @@ describe("execute_tools integration", () => {
     }
   });
 
-  test("executes QuickJS code against real file edit and read bindings", async () => {
+  test("executes QuickJS code against real replace_in_file and read bindings", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "codemode-execute-tool-"));
     try {
       writeFileSync(join(projectDir, "edit-me.txt"), "hello world");
@@ -190,7 +191,7 @@ describe("execute_tools integration", () => {
       const tool = createExecuteTool({
         typeDefs: `
           declare function read(params: { path: string }): Promise<string>;
-          declare function edit(params: {
+          declare function replace_in_file(params: {
             path: string;
             edits: Array<{ oldText: string; newText: string }>;
           }): Promise<string>;
@@ -198,7 +199,7 @@ describe("execute_tools integration", () => {
         bindings: {
           ...bindings,
           read: async (params) => fileTools.read(params),
-          edit: async (params) => fileTools.edit(params),
+          replace_in_file: async (params) => fileTools.replace_in_file(params),
         },
         timeout: 1_000,
         executor: { kind: "quickjs" },
@@ -208,7 +209,7 @@ describe("execute_tools integration", () => {
         "call-id",
         {
           code: `
-            await edit({
+            await replace_in_file({
               path: "edit-me.txt",
               edits: [{ oldText: "world", newText: "codemode" }],
             });
@@ -236,7 +237,7 @@ describe("execute_tools integration", () => {
           declare const π: { original: string; replacement: string };
           declare function read(params: { path: string }): Promise<string>;
           declare function write(params: { path: string; content: string }): Promise<void>;
-          declare function edit(params: {
+          declare function replace_in_file(params: {
             path: string;
             edits: Array<{ oldText: string; newText: string }>;
           }): Promise<string>;
@@ -245,7 +246,7 @@ describe("execute_tools integration", () => {
           ...bindings,
           read: async (params) => fileTools.read(params),
           write: async (params) => fileTools.write(params),
-          edit: async (params) => fileTools.edit(params),
+          replace_in_file: async (params) => fileTools.replace_in_file(params),
         },
         timeout: 1_000,
         executor: { kind: "quickjs" },
@@ -258,7 +259,7 @@ describe("execute_tools integration", () => {
         {
           code: `
             await write({ path: "hard-to-quote.txt", content: π.original });
-            await edit({
+            await replace_in_file({
               path: "hard-to-quote.txt",
               edits: [{ oldText: π.original, newText: π.replacement }],
             });
@@ -390,21 +391,21 @@ describe("execute_tools integration", () => {
     }
   });
 
-  test("returns runtime error when real file edit binding rejects", async () => {
+  test("returns runtime error when real replace_in_file binding rejects", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "codemode-execute-tool-"));
     try {
       writeFileSync(join(projectDir, "edit-me.txt"), "hello world");
       const fileTools = createFileTools({ projectRoot: projectDir });
       const tool = createExecuteTool({
         typeDefs: `
-          declare function edit(params: {
+          declare function replace_in_file(params: {
             path: string;
             edits: Array<{ oldText: string; newText: string }>;
           }): Promise<string>;
         `,
         bindings: {
           ...bindings,
-          edit: async (params) => fileTools.edit(params),
+          replace_in_file: async (params) => fileTools.replace_in_file(params),
         },
         timeout: 1_000,
         executor: { kind: "quickjs" },
@@ -414,7 +415,7 @@ describe("execute_tools integration", () => {
         "call-id",
         {
           code: `
-            await edit({
+            await replace_in_file({
               path: "edit-me.txt",
               edits: [{ oldText: "missing", newText: "codemode" }],
             });

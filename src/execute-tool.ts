@@ -52,20 +52,21 @@ Write code using top-level file tools and the codemode.* API. Your code is type-
 Available tools in code:
 - read({ path }) → file content as string
 - write({ path, content }) → void
-- edit({ path, edits: [{ oldText, newText }] }) → exact text replacement in a file
+- replace_in_file({ path, edits: [{ oldText, newText }] }) → exact text replacement in a file
+- apply_patch({ patch }) → apply a unified diff inside the project root
 - codemode.search_tools({ query }) → discover available tools
 - codemode.describe_tools({ namespace, tool? }) → browse MCP tools
 - codemode.<namespace>.<tool>(args) → call MCP tools (e.g., codemode.github.search_issues())
 - codemode.progress(msg) → stream progress to UI
-- print(...) → output to include in result
+- print(...) → optional diagnostic/progress output; avoid printing values you also return
 - π.keyName → string constants from the 'strings' parameter
 
-Return a value to include it in the result. Type errors are returned for correction.`,
+Return the final value you want in the result. Prefer return over print for final output; Type errors are returned for correction.`,
 
     parameters: Type.Object({
       code: Type.String({
         description:
-          "TypeScript code body. Has access to read(), write(), edit(), codemode.search_tools(), codemode.describe_tools(), codemode.<namespace>.<tool>() for MCP, print(), and π.keyName from strings parameter.",
+          "TypeScript code body. Has access to read(), write(), replace_in_file(), apply_patch(), codemode.search_tools(), codemode.describe_tools(), codemode.<namespace>.<tool>() for MCP, print(), and π.keyName from strings parameter.",
       }),
       strings: Type.Optional(
         Type.Record(Type.String(), Type.String(), {

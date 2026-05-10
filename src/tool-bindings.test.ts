@@ -23,6 +23,23 @@ const mcpServers: McpServerInfo[] = [
 ];
 
 describe("createToolBindings MCP discovery", () => {
+  test("describes top-level file editing tools with usage guidance", async () => {
+    const bindings = createToolBindings({ cwd: process.cwd(), mcpServers });
+
+    await expect(bindings.describe_tools({ namespace: "codemode" })).resolves.toContain(
+      "read/write/replace_in_file/apply_patch are top-level file tools",
+    );
+    await expect(
+      bindings.describe_tools({ namespace: "codemode", tool: "replace_in_file" }),
+    ).resolves.toContain("exact search/replace");
+    await expect(
+      bindings.describe_tools({ namespace: "codemode", tool: "write" }),
+    ).resolves.toContain("new files or intentional complete rewrites");
+    await expect(
+      bindings.describe_tools({ namespace: "codemode", tool: "apply_patch" }),
+    ).resolves.toContain("unified diff");
+  });
+
   test("lists MCP servers without exposing them as top-level tools", async () => {
     const bindings = createToolBindings({ cwd: process.cwd(), mcpServers });
 
@@ -33,6 +50,45 @@ describe("createToolBindings MCP discovery", () => {
     expect(bindings.search_issues).toBeUndefined();
   });
 
+  test("connects uncached MCP namespaces when listing tools", async () => {
+    const uncached: McpServerInfo = { serverName: "context7", namespace: "context7", tools: [] };
+    const bindings = createToolBindings({
+      cwd: process.cwd(),
+      mcpServers: [uncached],
+      mcpClient: {
+        available: true,
+        getServers: () => [uncached],
+        listServers: () => ["context7"],
+        warmCache: async () => [uncached],
+        ensureServerConnected: async () => ({
+          serverName: "context7",
+          namespace: "context7",
+          tools: [
+            {
+              name: "resolve-library-id",
+              description: "Resolve a Context7 library ID",
+              inputSchema: {
+                type: "object",
+                properties: { query: { type: "string" }, libraryName: { type: "string" } },
+                required: ["query", "libraryName"],
+              },
+            },
+            { name: "query-docs", description: "Query docs", inputSchema: { type: "object" } },
+          ],
+        }),
+        call: async () => "",
+        shutdown: async () => undefined,
+      },
+    });
+
+    await expect(bindings.list_tools({ namespace: "context7" })).resolves.toContain(
+      "resolve_library_id(args: { query: string; libraryName: string; }) (MCP: resolve-library-id) — Resolve a Context7 library ID",
+    );
+    await expect(
+      bindings.describe_tools({ namespace: "context7", tool: "resolve-library-id" }),
+    ).resolves.toContain("query: string;");
+  });
+
   test("lists MCP tools with pagination guidance", async () => {
     const bindings = createToolBindings({ cwd: process.cwd(), mcpServers });
 
@@ -41,7 +97,7 @@ describe("createToolBindings MCP discovery", () => {
     ).resolves.toContain("codemode.github tools 2-2 of 2");
     await expect(
       bindings.list_tools({ namespace: "github", offset: 1, limit: 1 }),
-    ).resolves.toContain("create_issue — Create an issue");
+    ).resolves.toContain("create_issue(args?: Record<string, unknown>) — Create an issue");
   });
 
   test("describe_tools points large namespace browsing to list_tools", async () => {

@@ -125,10 +125,59 @@ describe("file tools", () => {
     });
   });
 
-  describe("edit", () => {
+  describe("apply_patch", () => {
+    it("applies a unified diff to an existing file", () => {
+      writeFileSync(join(projectDir, "test.txt"), "line1\nline2\nline3\n");
+
+      const result = tools.apply_patch({
+        patch: `--- a/test.txt
++++ b/test.txt
+@@ -1,3 +1,3 @@
+ line1
+-line2
++changed
+ line3
+`,
+      });
+
+      expect(result).toContain("Applied patch to 1 file");
+      expect(readFileSync(join(projectDir, "test.txt"), "utf-8")).toBe("line1\nchanged\nline3\n");
+    });
+
+    it("reports clear hunk failure diagnostics", () => {
+      writeFileSync(join(projectDir, "test.txt"), "line1\nline2\nline3\n");
+
+      expect(() =>
+        tools.apply_patch({
+          patch: `--- a/test.txt
++++ b/test.txt
+@@ -1,3 +1,3 @@
+ line1
+-missing
++changed
+ line3
+`,
+        }),
+      ).toThrow(/Hunk failed for test\.txt at -1,3/);
+    });
+
+    it("rejects path traversal in patch file paths", () => {
+      expect(() =>
+        tools.apply_patch({
+          patch: `--- a/../outside.txt
++++ b/../outside.txt
+@@ -0,0 +1 @@
++oops
+`,
+        }),
+      ).toThrow("Path outside project");
+    });
+  });
+
+  describe("replace_in_file", () => {
     it("replaces single occurrence", () => {
       writeFileSync(join(projectDir, "test.txt"), "hello world");
-      const result = tools.edit({
+      const result = tools.replace_in_file({
         path: "test.txt",
         edits: [{ oldText: "world", newText: "universe" }],
       });
@@ -139,7 +188,7 @@ describe("file tools", () => {
 
     it("replaces multiple occurrences with multiple edits", () => {
       writeFileSync(join(projectDir, "test.txt"), "a b c");
-      const result = tools.edit({
+      const result = tools.replace_in_file({
         path: "test.txt",
         edits: [
           { oldText: "a", newText: "x" },
@@ -155,7 +204,7 @@ describe("file tools", () => {
     it("throws error when oldText not found", () => {
       writeFileSync(join(projectDir, "test.txt"), "hello world");
       expect(() =>
-        tools.edit({
+        tools.replace_in_file({
           path: "test.txt",
           edits: [{ oldText: "nonexistent", newText: "replacement" }],
         }),
@@ -165,7 +214,7 @@ describe("file tools", () => {
     it("throws error when oldText matches multiple times", () => {
       writeFileSync(join(projectDir, "test.txt"), "a a a");
       expect(() =>
-        tools.edit({
+        tools.replace_in_file({
           path: "test.txt",
           edits: [{ oldText: "a", newText: "b" }],
         }),
@@ -175,7 +224,7 @@ describe("file tools", () => {
     it("throws error when edits overlap", () => {
       writeFileSync(join(projectDir, "test.txt"), "hello world");
       expect(() =>
-        tools.edit({
+        tools.replace_in_file({
           path: "test.txt",
           edits: [
             { oldText: "hello world", newText: "hi" },
@@ -187,7 +236,7 @@ describe("file tools", () => {
 
     it("handles multiline replacements", () => {
       writeFileSync(join(projectDir, "test.txt"), "line1\nline2\nline3");
-      const result = tools.edit({
+      const result = tools.replace_in_file({
         path: "test.txt",
         edits: [{ oldText: "line2", newText: "newLine2" }],
       });
@@ -198,7 +247,7 @@ describe("file tools", () => {
 
     it("throws error for path outside project", () => {
       expect(() =>
-        tools.edit({
+        tools.replace_in_file({
           path: "/etc/passwd",
           edits: [{ oldText: "a", newText: "b" }],
         }),
@@ -207,7 +256,7 @@ describe("file tools", () => {
 
     it("throws error for non-existent file", () => {
       expect(() =>
-        tools.edit({
+        tools.replace_in_file({
           path: "nonexistent.txt",
           edits: [{ oldText: "a", newText: "b" }],
         }),
@@ -216,7 +265,7 @@ describe("file tools", () => {
 
     it("handles edits at start of file", () => {
       writeFileSync(join(projectDir, "test.txt"), "hello world");
-      tools.edit({
+      tools.replace_in_file({
         path: "test.txt",
         edits: [{ oldText: "hello", newText: "hi" }],
       });
@@ -226,7 +275,7 @@ describe("file tools", () => {
 
     it("handles edits at end of file", () => {
       writeFileSync(join(projectDir, "test.txt"), "hello world");
-      tools.edit({
+      tools.replace_in_file({
         path: "test.txt",
         edits: [{ oldText: "world", newText: "universe" }],
       });
@@ -236,7 +285,7 @@ describe("file tools", () => {
 
     it("handles replacement with empty string", () => {
       writeFileSync(join(projectDir, "test.txt"), "hello world");
-      tools.edit({
+      tools.replace_in_file({
         path: "test.txt",
         edits: [{ oldText: " world", newText: "" }],
       });

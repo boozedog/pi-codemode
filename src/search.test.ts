@@ -110,6 +110,20 @@ describe("tool search", () => {
     expect(searchTools("githb")).toContain("codemode.github.search_issues()");
   });
 
+  test("surfaces editing guidance for replace, patch, write, and diff queries", () => {
+    buildSearchIndex([
+      { name: "read", description: "Read file contents" },
+      { name: "write", description: "Write file contents" },
+      { name: "replace_in_file", description: "Replace file contents" },
+      { name: "apply_patch", description: "Apply patches" },
+    ]);
+
+    expect(searchTools("replace")).toContain("Use for precise localized changes");
+    expect(searchTools("write file")).toContain("new files or intentional complete rewrites");
+    expect(searchTools("patch diff")).toContain("codemode.apply_patch()");
+    expect(searchTools("replace in file")).toContain("replace_in_file");
+  });
+
   test("limits result count and reports omitted matches", () => {
     buildSearchIndex(
       [],

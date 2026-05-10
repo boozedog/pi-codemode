@@ -2,7 +2,7 @@
 //
 // Uses Cloudflare's generateTypesFromJsonSchema for JSON Schema → TypeScript.
 // Generates:
-// 1. Built-in tool types (read, write, edit, search_tools, etc.)
+// 1. Built-in tool types (read, write, replace_in_file, apply_patch, search_tools, etc.)
 // 2. MCP server types with nested namespaces
 // 3. System prompt summary (compact, not full types)
 
@@ -54,15 +54,15 @@ const fileToolDescriptors: Record<string, { description?: string; inputSchema: J
       required: ["path", "content"],
     },
   },
-  edit: {
+  replace_in_file: {
     description:
-      "Edit a file using Pi's exact replacement semantics. Each oldText must match exactly one unique, non-overlapping region in the original file. Nearby edits should be merged into one edit.",
+      "Replace text in a file using exact replacement semantics. Each oldText must match exactly one unique, non-overlapping region in the original file. Nearby replacements should be merged into one replacement. Use apply_patch for unified diffs.",
     inputSchema: {
       type: "object",
       properties: {
         path: {
           type: "string",
-          description: "Path to the file to edit (relative or absolute)",
+          description: "Path to the file to update (relative or absolute)",
         },
         edits: {
           type: "array",
@@ -85,6 +85,20 @@ const fileToolDescriptors: Record<string, { description?: string; inputSchema: J
         },
       },
       required: ["path", "edits"],
+    },
+  },
+  apply_patch: {
+    description:
+      "Apply a text-only unified diff safely inside the project root. Use for patch/diff-oriented edits; hunk failures return diagnostics.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        patch: {
+          type: "string",
+          description: "Unified diff text to apply inside the project root",
+        },
+      },
+      required: ["patch"],
     },
   },
 };
@@ -259,9 +273,12 @@ export function generateBuiltinTypeDefs(config?: { cli?: CliConfig }): string {
   return `\
 /** Tool API available inside execute_tools code blocks. */
 
+/** Read a file. Use offset/limit for large files instead of reading more than needed. */
 declare function read(args: { path: string; offset?: number; limit?: number }): Promise<string>;
+/** Write an entire file. Use for new files or intentional complete rewrites. Avoid full-file rewrites for small localized changes because they cost more tokens and risk accidental deletion. */
 declare function write(args: { path: string; content: string }): Promise<void>;
-declare function edit(args: {
+/** Replace text in a file (replace_in_file). Use for precise localized changes. Every oldText must match exactly one unique, non-overlapping region in the original file; edits are matched against the original file, not sequentially. Use enough surrounding context for uniqueness, and merge nearby edits into one larger replacement. */
+declare function replace_in_file(args: {
   path: string;
   edits: Array<{
     /** Exact literal original text. Must match exactly once in the original file. */
@@ -270,6 +287,8 @@ declare function edit(args: {
     newText: string;
   }>;
 }): Promise<string>;
+/** Apply a text-only unified diff inside the project root. Useful when producing a git-style patch is clearer than exact replacements; failed hunks return diagnostics. */
+declare function apply_patch(args: { patch: string }): Promise<string>;
 
 declare const codemode: CodemodeTools & McpServerNamespaces;
 
@@ -287,7 +306,7 @@ ${generated
   .join("\n")}
 }
 
-/** Print output to include in the result returned to you. */
+/** Print diagnostic/progress output. Prefer returning final values; do not print the same value you return. */
 declare function print(...args: any[]): void;
 
 /** Named string constants passed via the 'strings' parameter. Use for file content that's hard to quote in JS. */
@@ -422,7 +441,11 @@ export function generateToolSignature(
     },
   };
   const generated = generateTypesFromJsonSchema(descriptor);
-  const sig = generated.split("\n")[0]?.trim() || `${sanitizeToolName(toolName)}(args: any)`;
+  const sig =
+    generated
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.includes("(args")) || `${sanitizeToolName(toolName)}(args: any)`;
 
   lines.push(`codemode.${namespace}.${sig}: Promise<string>`);
   return lines.join("\n");

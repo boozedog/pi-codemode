@@ -43,13 +43,23 @@ export interface McpServerInfo {
 const INDEXED_PI_TOOLS = new Set([
   "read",
   "write",
-  "edit",
+  "replace_in_file",
+  "apply_patch",
   "search_tools",
   "list_mcp_servers",
   "list_tools",
   "describe_tools",
   "progress",
 ]);
+
+const PI_TOOL_SEARCH_DESCRIPTIONS: Record<string, string> = {
+  write:
+    "Write an entire file. Best for new files or intentional complete rewrites; avoid for small edits because full-file rewrites can waste tokens and accidentally delete content.",
+  replace_in_file:
+    "Exact search/replace file tool. Use for precise localized changes and replacements. oldText must match exactly once, replacements must be unique and non-overlapping, and nearby replacements should be merged. Use apply_patch for unified diffs.",
+  apply_patch:
+    "Apply a text-only unified diff patch safely inside the project root. Useful for patch/diff-oriented edits and returns clear hunk failure diagnostics.",
+};
 
 let index: MiniSearch<SearchDoc> | null = null;
 let docs: SearchDoc[] = [];
@@ -70,7 +80,7 @@ export function buildSearchIndex(
     docs.push({
       id: `pi:${tool.name}`,
       name: tool.name,
-      description: tool.description ?? "",
+      description: PI_TOOL_SEARCH_DESCRIPTIONS[tool.name] ?? tool.description ?? "",
       source: "pi",
       callSig: `codemode.${tool.name}()`,
       params: "",

@@ -66,6 +66,15 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   try {
     mcpClient = createMcpClient({ config, enrichError: generateParamSummary });
     mcpServers = mcpClient.getServers();
+    void mcpClient
+      .warmCache()
+      .then((servers) => {
+        mcpServers = servers;
+      })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`Codemode: MCP cache warmup failed: ${message}`);
+      });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`Codemode: MCP init failed: ${message}`);
@@ -213,9 +222,9 @@ ${builtinTypeDefs}
 ${mcpSummary ? "\n" + mcpSummary + "\n" : ""}
 ### How to use
 
-Call \`execute_tools\` with a TypeScript code body. Use top-level \`read\`, \`write\`, and
-\`edit\` for files; use \`codemode.*\` for discovery and MCP tools. Use \`print()\` to output
-intermediate results and \`return\` for the final value.
+Call \`execute_tools\` with a TypeScript code body. Use top-level \`read\`, \`write\`,
+\`replace_in_file\`, and \`apply_patch\` for files; use \`codemode.*\` for discovery and MCP
+tools. Prefer \`return\` for the final value. Use \`print()\` only for diagnostics or intermediate output you do not also return.
 
 #### Parallel execution — use Promise.all for independent calls
 
@@ -296,7 +305,7 @@ parameter instead of embedding it in your code. The strings are available as \`�
 
 \`\`\`typescript
 await write({ path: "run.sh", content: π.script });
-await edit({
+await replace_in_file({
   path: "config.ts",
   edits: [{ oldText: π.oldConfig, newText: π.newConfig }],
 });
@@ -312,7 +321,7 @@ ${generateEditGuidance()}
 ### Important
 - **Parallelize independent calls** — use \`Promise.all\` whenever calls don't depend on each other
 - **Chain dependent calls** — use the result of one call to determine what to call next
-- Both \`print()\` output and \`return\` values are included in the result
+- Both \`print()\` output and \`return\` values are included in the result; do not print the same value you return
 - Type errors are caught before execution — fix them based on the error messages
 - Runtime errors are caught and returned — fix your code if you see one
 `;
@@ -328,10 +337,12 @@ ${generateEditGuidance()}`;
 function generateEditGuidance(): string {
   return `\
 ### Edit guidance
-- When using \`edit\`, \`oldText\` must be an exact literal substring from the original file
+- Use \`replace_in_file\` for exact localized search/replace
+- When using \`replace_in_file\`, \`oldText\` must be an exact literal substring from the original file
 - Each \`oldText\` must match exactly once
-- Edits are matched against the original file, not sequentially
-- Edits must not overlap
-- If two changes are close together, merge them into one larger edit
-- Use enough surrounding context to make \`oldText\` unique, but avoid huge unrelated blocks`;
+- Replacements are matched against the original file, not sequentially
+- Replacements must not overlap
+- If two changes are close together, merge them into one larger replacement
+- Use enough surrounding context to make \`oldText\` unique, but avoid huge unrelated blocks
+- Use \`apply_patch\` when a unified diff is clearer than exact replacements; it is text-only and scoped to the project root`;
 }

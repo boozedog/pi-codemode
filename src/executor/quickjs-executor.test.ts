@@ -25,7 +25,8 @@ describe("QuickJsExecutor", () => {
       `
 			const text = await read({ path: "a.txt" });
 			await write({ path: "b.txt", content: text });
-			await edit({ path: "a.txt", edits: [{ oldText: "a", newText: "b" }] });
+			await replace_in_file({ path: "a.txt", edits: [{ oldText: "a", newText: "b" }] });
+			await apply_patch({ patch: "--- a/a.txt\\n+++ b/a.txt\\n@@ -1,1 +1,1 @@\\n-a\\n+b\\n" });
 			return codemode.callsDone({});
 		`,
       [
@@ -39,9 +40,13 @@ describe("QuickJsExecutor", () => {
             write: async (args: unknown) => {
               calls.push(["write", args]);
             },
-            edit: async (args: unknown) => {
-              calls.push(["edit", args]);
+            replace_in_file: async (args: unknown) => {
+              calls.push(["replace_in_file", args]);
               return "edited";
+            },
+            apply_patch: async (args: unknown) => {
+              calls.push(["apply_patch", args]);
+              return "patched";
             },
             callsDone: async () => calls,
           },
@@ -53,18 +58,69 @@ describe("QuickJsExecutor", () => {
     expect(result.result).toEqual([
       ["read", { path: "a.txt" }],
       ["write", { path: "b.txt", content: "contents" }],
-      ["edit", { path: "a.txt", edits: [{ oldText: "a", newText: "b" }] }],
+      ["replace_in_file", { path: "a.txt", edits: [{ oldText: "a", newText: "b" }] }],
+      ["apply_patch", { patch: "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n" }],
     ]);
   });
 
   test("does not expose file tools through codemode namespace", async () => {
     const executor = new QuickJsExecutor({ timeout: 5_000 });
-    const result = await executor.execute(`return typeof codemode.edit;`, [
-      { name: "codemode", fns: { edit: async () => "edited" } },
+    const result = await executor.execute(`return typeof codemode.replace_in_file;`, [
+      { name: "codemode", fns: { replace_in_file: async () => "edited" } },
     ]);
 
     expect(result.error).toBeUndefined();
     expect(result.result).toBe("undefined");
+  });
+
+  test("routes uncached nested namespace tool calls through dynamic proxies", async () => {
+    const executor = new QuickJsExecutor({ timeout: 5_000 });
+    const dynamicNamespace = new Proxy(
+      {},
+      {
+        get(_target, prop: string) {
+          if (prop === "then") return undefined;
+          return async (args: unknown) => ({ tool: prop, args });
+        },
+      },
+    );
+
+    const result = await executor.execute(
+      `return await codemode.context7.resolve_library_id({ libraryName: "perryts" });`,
+      [{ name: "codemode", fns: { context7: dynamicNamespace } }],
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toEqual({ tool: "resolve_library_id", args: { libraryName: "perryts" } });
+  });
+
+  test("does not use QuickJS after Promise.all rejects while other host calls are in flight", async () => {
+    const executor = new QuickJsExecutor({ timeout: 5_000 });
+    const result = await executor.execute(
+      `
+      await Promise.all([
+        codemode.fast_fail({}),
+        codemode.slow_success({}),
+      ]);
+      `,
+      [
+        {
+          name: "codemode",
+          fns: {
+            fast_fail: async () => {
+              throw new Error("fast failure");
+            },
+            slow_success: async () => {
+              await new Promise((resolve) => setTimeout(resolve, 25));
+              return "late success";
+            },
+          },
+        },
+      ],
+    );
+
+    expect(result.error).toContain("fast failure");
+    await new Promise((resolve) => setTimeout(resolve, 50));
   });
 
   test("resolves concurrent async host calls", async () => {

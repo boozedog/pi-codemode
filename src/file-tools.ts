@@ -1,4 +1,4 @@
-// file-tools.ts — Core file tool implementations (read, write, edit).
+// file-tools.ts — Core file tool implementations (read, write, replace_in_file, apply_patch).
 //
 // These are host-side implementations that use Node.js fs directly.
 // Path validation ensures all operations stay within the project directory.
@@ -25,6 +25,10 @@ export interface WriteParams {
 export interface EditParams {
   path: string;
   edits: Array<{ oldText: string; newText: string }>;
+}
+
+export interface ApplyPatchParams {
+  patch: string;
 }
 
 /**
@@ -66,11 +70,15 @@ export function createFileTools(options: FileToolsOptions) {
       writeFileSync(fullPath, params.content, "utf-8");
     },
 
-    edit(params: EditParams): string {
+    apply_patch(params: ApplyPatchParams): string {
+      return applyUnifiedPatch(params.patch, projectRoot);
+    },
+
+    replace_in_file(params: EditParams): string {
       const fullPath = validateAndResolvePath(params.path, projectRoot);
       let content = readFileSync(fullPath, "utf-8");
 
-      // Track edit positions to detect overlaps
+      // Track replacement positions to detect overlaps
       const editPositions: Array<{ start: number; end: number; oldText: string; newText: string }> =
         [];
 
@@ -170,4 +178,125 @@ function findAllPositions(content: string, search: string): number[] {
   }
 
   return positions;
+}
+
+interface ParsedFilePatch {
+  path: string;
+  hunks: ParsedHunk[];
+}
+
+interface ParsedHunk {
+  oldStart: number;
+  oldCount: number;
+  lines: string[];
+}
+
+function applyUnifiedPatch(patch: string, projectRoot: string): string {
+  const files = parseUnifiedPatch(patch);
+  if (files.length === 0) throw new Error("No file patches found in unified diff");
+
+  for (const file of files) {
+    const fullPath = validateAndResolvePath(file.path, projectRoot);
+    const original = existsSync(fullPath) ? readFileSync(fullPath, "utf-8") : "";
+    const updated = applyFilePatch(original, file);
+    const dir = dirname(fullPath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(fullPath, updated, "utf-8");
+  }
+
+  return `Applied patch to ${files.length} file${files.length === 1 ? "" : "s"}`;
+}
+
+function parseUnifiedPatch(patch: string): ParsedFilePatch[] {
+  const lines = patch.split("\n");
+  const files: ParsedFilePatch[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    if (!lines[i].startsWith("--- ")) {
+      i++;
+      continue;
+    }
+    const oldPath = parsePatchPath(lines[i].slice(4));
+    i++;
+    if (i >= lines.length || !lines[i].startsWith("+++ ")) {
+      throw new Error(`Invalid unified diff: expected +++ after --- ${oldPath}`);
+    }
+    const newPath = parsePatchPath(lines[i].slice(4));
+    const path = newPath === "/dev/null" ? oldPath : newPath;
+    const file: ParsedFilePatch = { path, hunks: [] };
+    i++;
+
+    while (i < lines.length && !lines[i].startsWith("--- ")) {
+      const header = lines[i].match(/^@@ -(\d+),(\d+) \+(\d+),(\d+) @@/);
+      if (!header) {
+        i++;
+        continue;
+      }
+      const hunk: ParsedHunk = {
+        oldStart: Number(header[1]),
+        oldCount: Number(header[2]),
+        lines: [],
+      };
+      i++;
+      while (i < lines.length && !lines[i].startsWith("@@ ") && !lines[i].startsWith("--- ")) {
+        if (lines[i] !== "" || i < lines.length - 1) hunk.lines.push(lines[i]);
+        i++;
+      }
+      file.hunks.push(hunk);
+    }
+    files.push(file);
+  }
+
+  return files;
+}
+
+function parsePatchPath(raw: string): string {
+  const path = raw.trim().split(/\s+/)[0];
+  if (path === "/dev/null") return path;
+  return path.replace(/^[ab]\//, "");
+}
+
+function applyFilePatch(original: string, patch: ParsedFilePatch): string {
+  const hasTrailingNewline = original.endsWith("\n");
+  const originalLines = original === "" ? [] : original.replace(/\n$/, "").split("\n");
+  const result: string[] = [];
+  let cursor = 0;
+
+  for (const hunk of patch.hunks) {
+    const start = hunk.oldStart === 0 ? 0 : hunk.oldStart - 1;
+    if (start < cursor)
+      throw new Error(
+        `Hunk failed for ${patch.path} at -${hunk.oldStart},${hunk.oldCount}: overlaps previous hunk`,
+      );
+    result.push(...originalLines.slice(cursor, start));
+    let pos = start;
+
+    for (const line of hunk.lines) {
+      const marker = line[0];
+      const text = line.slice(1);
+      if (marker === " " || marker === "-") {
+        if (originalLines[pos] !== text) {
+          throw new Error(
+            `Hunk failed for ${patch.path} at -${hunk.oldStart},${hunk.oldCount}: expected ${JSON.stringify(text)} but found ${JSON.stringify(originalLines[pos] ?? "<EOF>")}`,
+          );
+        }
+        if (marker === " ") result.push(text);
+        pos++;
+      } else if (marker === "+") {
+        result.push(text);
+      } else if (line.startsWith("\\ No newline at end of file")) {
+        // Metadata line; ignore for MVP.
+      } else {
+        throw new Error(`Invalid hunk line for ${patch.path}: ${JSON.stringify(line)}`);
+      }
+    }
+    cursor = pos;
+  }
+
+  result.push(...originalLines.slice(cursor));
+  const next = result.join("\n");
+  return hasTrailingNewline || patch.hunks.some((h) => h.lines.some((l) => l.startsWith("+")))
+    ? next + "\n"
+    : next;
 }

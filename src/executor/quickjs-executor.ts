@@ -37,12 +37,14 @@ export class QuickJsExecutor implements CodeExecutor {
     runtime.setInterruptHandler(shouldInterruptAfterDeadline(Date.now() + this.#timeout));
     runtime.setMemoryLimit(this.#memoryLimitBytes);
     const logs: string[] = [];
-    const hostFns = flattenProviders(providersOrFns);
+    const resolveHostFn = createHostFnResolver(providersOrFns);
     const pendingHostPromises = new Set<{
       reject: (handle?: any) => void;
       dispose: () => void;
       alive?: boolean;
     }>();
+    const hostTasks = new Set<Promise<void>>();
+    let closing = false;
     let timedOut = false;
     let cancelled = false;
     let timeoutId: NodeJS.Timeout | undefined;
@@ -66,7 +68,7 @@ export class QuickJsExecutor implements CodeExecutor {
         const promise = vm.newPromise();
         pendingHostPromises.add(promise);
         promise.settled.then(() => pendingHostPromises.delete(promise));
-        const fn = hostFns[name];
+        const fn = resolveHostFn(name);
 
         if (!fn) {
           const errorHandle = vm.newError(`Tool "${name}" not found`);
@@ -76,22 +78,26 @@ export class QuickJsExecutor implements CodeExecutor {
           return promise.handle;
         }
 
-        Promise.resolve()
+        const task = Promise.resolve()
           .then(() => fn(args))
           .then((result) => {
+            if (closing || promise.alive === false) return;
             const handle = newJsonHandle(vm, result);
             promise.resolve(handle);
             handle.dispose();
           })
           .catch((err) => {
+            if (closing || promise.alive === false) return;
             const message = err instanceof Error ? err.message : String(err);
             const errorHandle = vm.newError(message);
             promise.reject(errorHandle);
             errorHandle.dispose();
           })
           .finally(() => {
-            void runtime.executePendingJobs();
+            if (!closing) void runtime.executePendingJobs();
           });
+        hostTasks.add(task);
+        task.finally(() => hostTasks.delete(task));
 
         return promise.handle;
       });
@@ -112,7 +118,7 @@ export class QuickJsExecutor implements CodeExecutor {
 				globalThis.codemode = new Proxy({}, {
 					get(_target, prop) {
 						if (prop === 'then') return undefined;
-						if (prop === 'read' || prop === 'write' || prop === 'edit') return undefined;
+						if (prop === 'read' || prop === 'write' || prop === 'replace_in_file' || prop === 'apply_patch') return undefined;
 						return new Proxy(function(args) { return globalThis.__hostCall(String(prop), args ?? {}); }, {
 							get(_fnTarget, child) {
 								if (child === 'then') return undefined;
@@ -123,7 +129,8 @@ export class QuickJsExecutor implements CodeExecutor {
 				});
 				globalThis.read = function(args) { return globalThis.__hostCall('read', args ?? {}); };
 				globalThis.write = function(args) { return globalThis.__hostCall('write', args ?? {}); };
-				globalThis.edit = function(args) { return globalThis.__hostCall('edit', args ?? {}); };
+				globalThis.replace_in_file = function(args) { return globalThis.__hostCall('replace_in_file', args ?? {}); };
+				globalThis.apply_patch = function(args) { return globalThis.__hostCall('apply_patch', args ?? {}); };
 				globalThis.cli = new Proxy({}, {
 					get(_target, tool) {
 						if (tool === 'then') return undefined;
@@ -199,6 +206,11 @@ export class QuickJsExecutor implements CodeExecutor {
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       if (abortHandler) options?.signal?.removeEventListener("abort", abortHandler);
+      if (!timedOut && !cancelled && hostTasks.size > 0) {
+        await Promise.allSettled(hostTasks);
+        void runtime.executePendingJobs();
+      }
+      closing = true;
       if (timedOut || cancelled) {
         const errorHandle = vm.newError(
           cancelled ? "Execution cancelled" : `Execution timed out after ${this.#timeout}ms`,
@@ -226,7 +238,7 @@ export class QuickJsExecutor implements CodeExecutor {
         globalThis.__hostCall = undefined;
         globalThis.read = undefined;
         globalThis.write = undefined;
-        globalThis.edit = undefined;
+        globalThis.replace_in_file = undefined;
         globalThis.codemode = undefined;
         globalThis.cli = undefined;
         globalThis.print = undefined;
@@ -250,30 +262,34 @@ function transpileUserCode(code: string): string {
   }).outputText;
 }
 
-function flattenProviders(
+function createHostFnResolver(
   providersOrFns: ExecutionProvider[] | Record<string, unknown>,
-): Record<string, HostFn> {
-  const providers = Array.isArray(providersOrFns)
-    ? providersOrFns
-    : [{ name: "codemode", fns: providersOrFns }];
-  const out: Record<string, HostFn> = {};
-  for (const provider of providers) {
-    flattenObject(provider.name, provider.fns, out);
-    if (provider.name === "codemode") flattenObject("", provider.fns, out);
-  }
-  return out;
+): (name: string) => HostFn | undefined {
+  const roots = Array.isArray(providersOrFns)
+    ? Object.fromEntries(providersOrFns.map((provider) => [provider.name, provider.fns]))
+    : { codemode: providersOrFns };
+  const codemodeRoot = roots.codemode;
+
+  return (name: string): HostFn | undefined => {
+    const namespaced = resolvePath(roots, name);
+    if (namespaced) return namespaced;
+
+    // File tools and discovery helpers are exposed as top-level functions but are backed by
+    // the codemode provider. Resolve dynamically so Proxy-backed MCP namespaces with no cached
+    // tool names can still handle calls such as context7.resolve_library_id.
+    return resolvePath(codemodeRoot, name);
+  };
 }
 
-function flattenObject(prefix: string, value: unknown, out: Record<string, HostFn>): void {
-  if (!value || typeof value !== "object") return;
-  for (const [key, child] of Object.entries(value)) {
-    const name = prefix ? `${prefix}.${key}` : key;
-    if (typeof child === "function") {
-      out[name] = child as HostFn;
-    } else {
-      flattenObject(name, child, out);
+function resolvePath(root: unknown, path: string): HostFn | undefined {
+  let current = root;
+  for (const part of path.split(".")) {
+    if (!current || (typeof current !== "object" && typeof current !== "function")) {
+      return undefined;
     }
+    current = (current as Record<string, unknown>)[part];
   }
+  return typeof current === "function" ? (current as HostFn) : undefined;
 }
 
 async function resolveQuickJsPromise(

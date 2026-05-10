@@ -86,17 +86,7 @@ export class DenoExecutor implements CodeExecutor {
       await this.init();
     }
 
-    // Normalize providers to the array format
-    const providers = Array.isArray(providersOrFns)
-      ? providersOrFns
-      : [{ name: "codemode", fns: providersOrFns }];
-
-    // Flatten all functions into a single record for lookup
-    const allFns: Record<string, (args: unknown) => unknown | Promise<unknown>> = {};
-    for (const provider of providers) {
-      flattenProviderFns(provider.name, provider.fns, allFns);
-      if (provider.name === "codemode") flattenProviderFns("", provider.fns, allFns);
-    }
+    const resolveHostFn = createHostFnResolver(providersOrFns);
 
     // Spawn Deno process
     const config = {
@@ -148,7 +138,7 @@ export class DenoExecutor implements CodeExecutor {
 
         try {
           const msg = JSON.parse(json) as ProtocolMessage;
-          this.#handleMessage(msg, allFns, logs, child);
+          this.#handleMessage(msg, resolveHostFn, logs, child);
         } catch {
           // Invalid JSON - ignore
         }
@@ -198,14 +188,14 @@ export class DenoExecutor implements CodeExecutor {
    */
   #handleMessage(
     msg: ProtocolMessage,
-    allFns: Record<string, (args: unknown) => unknown | Promise<unknown>>,
+    resolveHostFn: (name: string) => ((args: unknown) => unknown | Promise<unknown>) | undefined,
     logs: string[],
     child: ReturnType<typeof spawn>,
   ): void {
     switch (msg.type) {
       case "tool_call": {
         const { id, name, args } = msg;
-        const fn = allFns[name];
+        const fn = resolveHostFn(name);
 
         if (!fn) {
           // Send error response
@@ -292,18 +282,33 @@ export class DenoExecutor implements CodeExecutor {
   }
 }
 
-function flattenProviderFns(
-  prefix: string,
-  value: unknown,
-  out: Record<string, (args: unknown) => unknown | Promise<unknown>>,
-): void {
-  if (!value || typeof value !== "object") return;
-  for (const [key, child] of Object.entries(value)) {
-    const name = prefix ? `${prefix}.${key}` : key;
-    if (typeof child === "function") {
-      out[name] = child as (args: unknown) => unknown | Promise<unknown>;
-    } else {
-      flattenProviderFns(name, child, out);
+function createHostFnResolver(
+  providersOrFns: ExecutionProvider[] | Record<string, unknown>,
+): (name: string) => ((args: unknown) => unknown | Promise<unknown>) | undefined {
+  const roots = Array.isArray(providersOrFns)
+    ? Object.fromEntries(providersOrFns.map((provider) => [provider.name, provider.fns]))
+    : { codemode: providersOrFns };
+  const codemodeRoot = roots.codemode;
+
+  return (name: string): ((args: unknown) => unknown | Promise<unknown>) | undefined => {
+    const namespaced = resolvePath(roots, name);
+    if (namespaced) return namespaced;
+    return resolvePath(codemodeRoot, name);
+  };
+}
+
+function resolvePath(
+  root: unknown,
+  path: string,
+): ((args: unknown) => unknown | Promise<unknown>) | undefined {
+  let current = root;
+  for (const part of path.split(".")) {
+    if (!current || (typeof current !== "object" && typeof current !== "function")) {
+      return undefined;
     }
+    current = (current as Record<string, unknown>)[part];
   }
+  return typeof current === "function"
+    ? (current as (args: unknown) => unknown | Promise<unknown>)
+    : undefined;
 }

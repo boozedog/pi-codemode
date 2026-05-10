@@ -32,8 +32,14 @@ export interface McpClient {
   /** Get info about all known servers (from cache, no connections needed). */
   getServers(): McpServerInfo[];
 
+  /** Connect to a server if needed and return fresh tool metadata. */
+  ensureServerConnected(namespace: string): Promise<McpServerInfo>;
+
   /** Call a tool on a specific server. Lazy-connects if needed. */
   call(namespace: string, toolName: string, args?: Record<string, unknown>): Promise<string>;
+
+  /** Start connecting all configured servers to populate metadata cache. */
+  warmCache(): Promise<McpServerInfo[]>;
 
   /** List all configured server names. */
   listServers(): string[];
@@ -155,16 +161,23 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
       return [...servers.values()];
     },
 
+    async ensureServerConnected(namespace) {
+      await ensureConnected(namespace);
+      return servers.get(namespace)!;
+    },
+
     async call(namespace, toolName, args) {
       await ensureConnected(namespace);
 
       const info = servers.get(namespace)!;
-      if (info.tools.length > 0 && !info.tools.some((t) => t.name === toolName)) {
+      const resolvedToolName = resolveMcpToolName(info.tools, toolName);
+      if (info.tools.length > 0 && !resolvedToolName) {
         const available = info.tools.map((t) => t.name).join(", ");
         throw new Error(
           `Unknown MCP tool: codemode.${namespace}.${toolName}(). Available: ${available}`,
         );
       }
+      const mcpToolName = resolvedToolName ?? toolName;
 
       const connection = manager.getConnection(info.serverName);
       if (!connection) {
@@ -176,7 +189,7 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
 
       try {
         const result = await connection.client.callTool({
-          name: toolName,
+          name: mcpToolName,
           arguments: args ?? {},
         });
 
@@ -189,7 +202,7 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
         const text = textParts.join("\n") || "(empty result)";
 
         if (result.isError) {
-          const toolInfo = info.tools.find((t) => t.name === toolName);
+          const toolInfo = info.tools.find((t) => t.name === mcpToolName);
           let errorMsg = `MCP tool error: codemode.${namespace}.${toolName}()\n\n${text}`;
           if (toolInfo?.inputSchema) {
             if (enrichError) {
@@ -203,6 +216,11 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
       } finally {
         manager.decrementInFlight(info.serverName);
       }
+    },
+
+    async warmCache() {
+      await Promise.all(serverNames.map((serverName) => ensureConnected(toNamespace(serverName))));
+      return [...servers.values()];
     },
 
     listServers() {
@@ -221,4 +239,15 @@ function toNamespace(serverName: string): string {
   if (!ns) ns = "mcp";
   if (/^[0-9]/.test(ns)) ns = "_" + ns;
   return ns;
+}
+
+function resolveMcpToolName(tools: McpToolInfo[], requestedName: string): string | undefined {
+  if (tools.some((t) => t.name === requestedName)) return requestedName;
+  const match = tools.find((t) => sanitizeToolName(t.name) === requestedName);
+  return match?.name;
+}
+
+function sanitizeToolName(name: string): string {
+  const sanitized = name.replace(/[^A-Za-z0-9_$]/g, "_");
+  return /^[A-Za-z_$]/.test(sanitized) ? sanitized : `_${sanitized}`;
 }

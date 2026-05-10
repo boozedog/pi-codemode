@@ -7,6 +7,11 @@ const state = vi.hoisted(() => ({
   needsAuth: false,
   savedCache: undefined as unknown,
   saveCacheFails: false,
+  tools: [
+    { name: "search_issues", description: "Search issues", inputSchema: {} },
+    { name: "create_issue", description: "Create issue", inputSchema: {} },
+  ] as Array<{ name: string; description: string; inputSchema: unknown }>,
+  lastToolCall: undefined as { name: string; arguments: unknown } | undefined,
   toolResult: {
     content: [{ type: "text", text: "ok" }],
     isError: false,
@@ -19,17 +24,17 @@ vi.mock("pi-mcp-adapter/server-manager.js", () => {
       if (state.connectFails) throw new Error("should not connect in this test");
       return {
         status: state.needsAuth ? "needs-auth" : "connected",
-        tools: [
-          { name: "search_issues", description: "Search issues", inputSchema: {} },
-          { name: "create_issue", description: "Create issue", inputSchema: {} },
-        ],
+        tools: state.tools,
         resources: [],
       };
     }
     getConnection(): unknown {
       return {
         client: {
-          callTool: async () => state.toolResult,
+          callTool: async (call: { name: string; arguments: unknown }) => {
+            state.lastToolCall = call;
+            return state.toolResult;
+          },
         },
       };
     }
@@ -74,6 +79,11 @@ describe("mcp client", () => {
     state.needsAuth = false;
     state.savedCache = undefined;
     state.saveCacheFails = false;
+    state.tools = [
+      { name: "search_issues", description: "Search issues", inputSchema: {} },
+      { name: "create_issue", description: "Create issue", inputSchema: {} },
+    ];
+    state.lastToolCall = undefined;
     state.toolResult = {
       content: [{ type: "text", text: "ok" }],
       isError: false,
@@ -169,6 +179,30 @@ describe("mcp client", () => {
     const client = createMcpClient();
 
     await expect(client.call("github", "search_issues", { query: "bug" })).resolves.toBe("ok");
+  });
+
+  test("maps generated TypeScript-safe tool names back to original MCP tool names", async () => {
+    state.connectFails = false;
+    state.tools = [
+      {
+        name: "resolve-library-id",
+        description: "Resolve library",
+        inputSchema: {
+          type: "object",
+          properties: { query: { type: "string" }, libraryName: { type: "string" } },
+          required: ["query", "libraryName"],
+        },
+      },
+    ];
+    const client = createMcpClient();
+
+    await expect(
+      client.call("github", "resolve_library_id", {
+        query: "perryts docs",
+        libraryName: "perryts",
+      }),
+    ).resolves.toBe("ok");
+    expect(state.lastToolCall?.name).toBe("resolve-library-id");
   });
 
   test("enriches MCP tool errors with schema hints for self correction", async () => {
