@@ -31,6 +31,8 @@ Generated code only receives explicit globals:
 - `write({ path, content })` writes a project file, creating parent directories.
 - `edit({ path, edits })` performs exact text replacements.
 - `codemode.search_tools({ query })` searches available Pi/MCP tools.
+- `codemode.list_mcp_servers()` lists configured MCP namespaces.
+- `codemode.list_tools({ namespace, offset?, limit? })` lists cached MCP tools with pagination.
 - `codemode.describe_tools({ namespace, tool? })` shows MCP namespace/tool details.
 - `codemode.<namespace>.<tool>(args)` calls configured MCP tools.
 - `$\`command\`` runs a just-bash command.
@@ -103,7 +105,7 @@ print(details);
 return await codemode.github.search_issues({ query: "is:open label:bug" });
 ```
 
-Use `codemode.search_tools({ query })` when you do not know the namespace or exact tool name.
+Use `codemode.list_mcp_servers()` to see available namespaces and `codemode.list_tools({ namespace })` to page through large cached tool lists. Use `codemode.search_tools({ query })` when you do not know the namespace or exact tool name.
 
 ## Configuration
 
@@ -121,6 +123,18 @@ Default config:
   "executor": {
     "type": "quickjs",
     "timeoutMs": 120000
+  }
+}
+```
+
+Codemode-specific MCP servers can also be configured here and are merged with `pi-mcp-adapter` MCP config:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "github-mcp": { "command": "github-mcp" }
+    }
   }
 }
 ```

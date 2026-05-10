@@ -104,6 +104,34 @@ const builtinToolDescriptors: Record<string, { description?: string; inputSchema
       required: ["query"],
     },
   },
+  list_mcp_servers: {
+    description: "List configured MCP server namespaces available under codemode.*.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  list_tools: {
+    description: "List cached tools in an MCP namespace with optional pagination.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        namespace: {
+          type: "string",
+          description: "MCP server namespace (e.g. 'github', 'slack')",
+        },
+        offset: {
+          type: "number",
+          description: "Zero-based offset for large tool lists",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum tools to return (default 50, max 100)",
+        },
+      },
+      required: ["namespace"],
+    },
+  },
   describe_tools: {
     description:
       "Browse available tools. List tools in a namespace, or show full parameters for a specific tool.",

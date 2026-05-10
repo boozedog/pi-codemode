@@ -69,10 +69,20 @@ function mergeConfig(base: ConfigInput, override: ConfigInput): ConfigInput {
             ...override.executor,
           }
         : undefined,
-    mcp: {
-      ...base.mcp,
-      ...override.mcp,
-    },
+    mcp:
+      base.mcp || override.mcp
+        ? {
+            ...base.mcp,
+            ...override.mcp,
+            servers:
+              base.mcp?.servers || override.mcp?.servers
+                ? {
+                    ...base.mcp?.servers,
+                    ...override.mcp?.servers,
+                  }
+                : undefined,
+          }
+        : undefined,
   };
 }
 

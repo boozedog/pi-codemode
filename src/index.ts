@@ -51,7 +51,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
   // --- Load MCP server info ---
   try {
-    mcpClient = createMcpClient({ enrichError: generateParamSummary });
+    mcpClient = createMcpClient({ config, enrichError: generateParamSummary });
     mcpServers = mcpClient.getServers();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

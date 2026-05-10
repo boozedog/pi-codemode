@@ -7,6 +7,10 @@ const state = vi.hoisted(() => ({
   needsAuth: false,
   savedCache: undefined as unknown,
   saveCacheFails: false,
+  toolResult: {
+    content: [{ type: "text", text: "ok" }],
+    isError: false,
+  } as unknown,
 }));
 
 vi.mock("pi-mcp-adapter/server-manager.js", () => {
@@ -22,8 +26,12 @@ vi.mock("pi-mcp-adapter/server-manager.js", () => {
         resources: [],
       };
     }
-    getConnection(): undefined {
-      return undefined;
+    getConnection(): unknown {
+      return {
+        client: {
+          callTool: async () => state.toolResult,
+        },
+      };
     }
     touch(): void {}
     incrementInFlight(): void {}
@@ -66,6 +74,27 @@ describe("mcp client", () => {
     state.needsAuth = false;
     state.savedCache = undefined;
     state.saveCacheFails = false;
+    state.toolResult = {
+      content: [{ type: "text", text: "ok" }],
+      isError: false,
+    };
+  });
+
+  test("merges codemode-specific MCP servers into adapter config", () => {
+    const client = createMcpClient({
+      config: {
+        executor: { type: "quickjs", timeoutMs: 120_000 },
+        mcp: {
+          servers: {
+            linear: { command: "linear" },
+            slack: { command: "project-slack" },
+          },
+        },
+      },
+    });
+
+    expect(client.listServers()).toEqual(["github-mcp", "slack", "linear"]);
+    expect(client.getServers().map((s) => s.namespace)).toEqual(["github", "slack", "linear"]);
   });
 
   test("unknown namespace error lists available namespaces", async () => {
@@ -132,6 +161,28 @@ describe("mcp client", () => {
 
     await expect(client.call("github", "serch_issues", {})).rejects.toThrow(
       "Unknown MCP tool: codemode.github.serch_issues(). Available: search_issues, create_issue",
+    );
+  });
+
+  test("calls a connected fake MCP tool and returns transformed text", async () => {
+    state.connectFails = false;
+    const client = createMcpClient();
+
+    await expect(client.call("github", "search_issues", { query: "bug" })).resolves.toBe("ok");
+  });
+
+  test("enriches MCP tool errors with schema hints for self correction", async () => {
+    state.connectFails = false;
+    state.toolResult = {
+      content: [{ type: "text", text: "missing query" }],
+      isError: true,
+    };
+    const client = createMcpClient({
+      enrichError: () => "Parameters:\n  query (required): string",
+    });
+
+    await expect(client.call("github", "search_issues", {})).rejects.toThrow(
+      "Parameters:\n  query (required): string",
     );
   });
 });

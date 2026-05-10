@@ -20,6 +20,8 @@ export interface ToolBindings {
     edits: Array<{ oldText: string; newText: string }>;
   }): Promise<string>;
   search_tools(params: { query: string }): Promise<string>;
+  list_mcp_servers(): Promise<string>;
+  list_tools(params: { namespace: string; offset?: number; limit?: number }): Promise<string>;
   describe_tools(params: { namespace: string; tool?: string }): Promise<string>;
   $(params: {
     parts: string[];
@@ -80,6 +82,30 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
       return searchTools(params.query);
     },
 
+    async list_mcp_servers() {
+      if (!mcpServers || mcpServers.length === 0) {
+        return "No MCP servers available.";
+      }
+      return mcpServers
+        .map(
+          (server) =>
+            `codemode.${server.namespace} — ${server.serverName} (${server.tools.length} cached tools)`,
+        )
+        .join("\n");
+    },
+
+    async list_tools(params) {
+      if (!mcpServers || mcpServers.length === 0) {
+        return "No MCP servers available.";
+      }
+      const server = mcpServers.find((s) => s.namespace === params.namespace);
+      if (!server) {
+        const available = mcpServers.map((s) => s.namespace).join(", ");
+        return `Unknown namespace "${params.namespace}". Available: ${available || "none"}`;
+      }
+      return listServerTools(server, params.offset, params.limit);
+    },
+
     async $(params) {
       if (signal?.aborted) throw new Error("Execution cancelled");
       let command = "";
@@ -128,17 +154,7 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
         if (server.tools.length === 0) {
           return `codemode.${server.namespace} has no cached tools. Call any tool to trigger a connection.`;
         }
-        let text = `codemode.${server.namespace} — ${server.tools.length} tools:\n\n`;
-        for (const t of server.tools) {
-          text += `  ${t.name}`;
-          if (t.description) {
-            const short =
-              t.description.length > 120 ? t.description.slice(0, 120) + "..." : t.description;
-            text += ` — ${short}`;
-          }
-          text += "\n";
-        }
-        return text.trimEnd();
+        return listServerTools(server, 0, 50);
       }
 
       // Describe a specific tool
@@ -193,6 +209,39 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
   return bindings;
 }
 
+function listServerTools(server: McpServerInfo, offset = 0, limit = 50): string {
+  if (server.tools.length === 0) {
+    return `codemode.${server.namespace} has no cached tools. Call any tool to trigger a connection.`;
+  }
+
+  const safeOffset = Math.max(0, offset);
+  const safeLimit = Math.max(1, Math.min(limit, 100));
+  const visible = server.tools.slice(safeOffset, safeOffset + safeLimit);
+  const start = visible.length > 0 ? safeOffset + 1 : 0;
+  const end = safeOffset + visible.length;
+  let text = `codemode.${server.namespace} tools ${start}-${end} of ${server.tools.length}`;
+  if (visible.length < server.tools.length) {
+    text += ` (showing ${visible.length} of ${server.tools.length} tools)`;
+  }
+  text += ":\n\n";
+
+  for (const t of visible) {
+    text += `  ${t.name}`;
+    if (t.description) {
+      const short =
+        t.description.length > 120 ? t.description.slice(0, 120) + "..." : t.description;
+      text += ` — ${short}`;
+    }
+    text += "\n";
+  }
+
+  if (safeOffset + safeLimit < server.tools.length) {
+    text += `\nUse codemode.list_tools({ namespace: "${server.namespace}", offset: ${safeOffset + safeLimit} }) for more.`;
+  }
+
+  return text.trimEnd();
+}
+
 /**
  * Describe built-in codemode tools.
  */
@@ -202,6 +251,14 @@ function describeBuiltinTools(toolName?: string): string {
       description:
         "Search for tools by name or description. Returns matching tool names, descriptions, and call signatures.",
       params: "{ query: string }",
+    },
+    list_mcp_servers: {
+      description: "List configured MCP server namespaces available under codemode.*.",
+      params: "{}",
+    },
+    list_tools: {
+      description: "List cached tools in an MCP namespace with optional pagination.",
+      params: "{ namespace: string; offset?: number; limit?: number }",
     },
     describe_tools: {
       description:

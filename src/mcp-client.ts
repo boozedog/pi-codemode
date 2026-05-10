@@ -15,6 +15,7 @@ import {
 } from "pi-mcp-adapter/metadata-cache.js";
 import { transformMcpContent } from "pi-mcp-adapter/tool-registrar.js";
 import type { McpContent } from "pi-mcp-adapter/types.js";
+import type { CodemodeConfig } from "./config.js";
 import type { McpServerInfo, McpToolInfo } from "./search.js";
 
 /** Optional error enrichment function for tool call failures */
@@ -23,6 +24,8 @@ export type ErrorEnricher = (inputSchema: unknown) => string;
 export interface McpClientOptions {
   /** Optional function to enrich error messages with schema info */
   enrichError?: ErrorEnricher;
+  /** Codemode-specific config merged on top of pi-mcp-adapter config. */
+  config?: CodemodeConfig;
 }
 
 export interface McpClient {
@@ -48,7 +51,14 @@ export interface McpClient {
 export function createMcpClient(options?: McpClientOptions): McpClient {
   const enrichError = options?.enrichError;
   const manager = new McpServerManager();
-  const config = loadMcpConfig();
+  const adapterConfig = loadMcpConfig();
+  const config = {
+    ...adapterConfig,
+    mcpServers: {
+      ...adapterConfig.mcpServers,
+      ...options?.config?.mcp?.servers,
+    },
+  };
   const serverNames = Object.keys(config.mcpServers ?? {});
   const cache = loadMetadataCache();
 

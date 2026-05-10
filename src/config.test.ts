@@ -42,6 +42,41 @@ describe("loadConfig", () => {
     expect(config.executor).toEqual({ type: "deno", timeoutMs: 2_000 });
   });
 
+  test("merges global and project MCP servers with project taking precedence", async () => {
+    const homeDir = await tempDir();
+    const projectDir = await tempDir();
+    await mkdir(join(homeDir, ".pi", "agent"), { recursive: true });
+    await mkdir(join(projectDir, ".pi"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".pi", "agent", "codemode.json"),
+      JSON.stringify({
+        mcp: {
+          servers: {
+            github: { command: "github-global" },
+            slack: { command: "slack" },
+          },
+        },
+      }),
+    );
+    await writeFile(
+      join(projectDir, ".pi", "codemode.json"),
+      JSON.stringify({
+        mcp: {
+          servers: {
+            github: { command: "github-project" },
+          },
+        },
+      }),
+    );
+
+    const config = loadConfig({ homeDir, projectDir });
+
+    expect(config.mcp?.servers).toEqual({
+      github: { command: "github-project" },
+      slack: { command: "slack" },
+    });
+  });
+
   test("rejects unsupported executor types", async () => {
     const projectDir = await tempDir();
     await mkdir(join(projectDir, ".pi"), { recursive: true });
