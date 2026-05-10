@@ -5,11 +5,25 @@
 
 import { McpServerManager } from "pi-mcp-adapter/server-manager.js";
 import { loadMcpConfig } from "pi-mcp-adapter/config.js";
-import { loadMetadataCache, isServerCacheValid } from "pi-mcp-adapter/metadata-cache.js";
+import {
+  computeServerHash,
+  isServerCacheValid,
+  loadMetadataCache,
+  saveMetadataCache,
+  serializeResources,
+  serializeTools,
+} from "pi-mcp-adapter/metadata-cache.js";
 import { transformMcpContent } from "pi-mcp-adapter/tool-registrar.js";
 import type { McpContent } from "pi-mcp-adapter/types.js";
-import { generateParamSummary } from "./type-generator.js";
 import type { McpServerInfo, McpToolInfo } from "./search.js";
+
+/** Optional error enrichment function for tool call failures */
+export type ErrorEnricher = (inputSchema: unknown) => string;
+
+export interface McpClientOptions {
+  /** Optional function to enrich error messages with schema info */
+  enrichError?: ErrorEnricher;
+}
 
 export interface McpClient {
   /** Get info about all known servers (from cache, no connections needed). */
@@ -31,7 +45,8 @@ export interface McpClient {
 /**
  * Create a codemode-only MCP client.
  */
-export function createMcpClient(): McpClient {
+export function createMcpClient(options?: McpClientOptions): McpClient {
+  const enrichError = options?.enrichError;
   const manager = new McpServerManager();
   const config = loadMcpConfig();
   const serverNames = Object.keys(config.mcpServers ?? {});
@@ -89,6 +104,18 @@ export function createMcpClient(): McpClient {
     }));
     servers.set(namespace, { serverName, namespace, tools });
     connectedServers.add(serverName);
+
+    saveMetadataCache({
+      version: 1,
+      servers: {
+        [serverName]: {
+          configHash: computeServerHash(def),
+          tools: serializeTools(connection.tools),
+          resources: serializeResources(connection.resources),
+          cachedAt: Date.now(),
+        },
+      },
+    });
   }
 
   return {
@@ -130,7 +157,9 @@ export function createMcpClient(): McpClient {
           const toolInfo = info.tools.find((t) => t.name === toolName);
           let errorMsg = `MCP tool error: codemode.${namespace}.${toolName}()\n\n${text}`;
           if (toolInfo?.inputSchema) {
-            errorMsg += `\n\n${generateParamSummary(toolInfo.inputSchema)}`;
+            if (enrichError) {
+              errorMsg += `\n\n${enrichError(toolInfo.inputSchema)}`;
+            }
           }
           throw new Error(errorMsg);
         }

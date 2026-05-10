@@ -13,6 +13,7 @@ import {
   generateBuiltinTypeDefs,
   generateMcpServerTypeDefs,
   generateMcpSummaryForPrompt,
+  generateParamSummary,
 } from "./type-generator.js";
 import { createExecuteTool } from "./execute-tool.js";
 import { createMcpClient, type McpClient } from "./mcp-client.js";
@@ -50,7 +51,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
   // --- Load MCP server info ---
   try {
-    mcpClient = createMcpClient();
+    mcpClient = createMcpClient({ enrichError: generateParamSummary });
     mcpServers = mcpClient.getServers();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
