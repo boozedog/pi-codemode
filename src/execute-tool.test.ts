@@ -188,7 +188,7 @@ describe("execute_tools integration", () => {
       });
 
       const original = "line 1\nquotes: \"double\" and 'single'\ntemplate: ${notJs}\nbacktick: `\n";
-      const replacement = "updated\njson-ish: {\"ok\": true}\nslashes: C:\\tmp\\file\n";
+      const replacement = 'updated\njson-ish: {"ok": true}\nslashes: C:\\tmp\\file\n';
       const result = await tool.execute(
         "call-id",
         {

@@ -9,7 +9,16 @@
     "sandbox",
     "typescript"
   ],
+  "homepage": "https://github.com/boozedog/pi-codemode#readme",
+  "bugs": {
+    "url": "https://github.com/boozedog/pi-codemode/issues"
+  },
   "license": "MIT",
+  "author": "Mario Zechner and contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/boozedog/pi-codemode.git"
+  },
   "files": [
     "dist/",
     "src/",
