@@ -7,6 +7,7 @@ import type { AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
 import { searchTools } from "./search.js";
 import { executeJustBash } from "./shell.js";
 import { generateToolSignature, generateParamSummary } from "./type-generator.js";
+import { createFileTools } from "./file-tools.js";
 import type { McpClient } from "./mcp-client.js";
 import type { McpServerInfo } from "./search.js";
 
@@ -49,34 +50,30 @@ export interface ToolBindingsOptions {
 /**
  * Create the tool binding functions.
  *
- * Note: This creates the binding definitions. The actual execution happens
- * in the Deno sandbox (Phase 3) which will call back to the host for tool execution.
- *
- * For Phase 2, we provide stub implementations that demonstrate the structure.
+ * These bindings wrap host-side implementations and are callable from the sandbox
+ * via the host bridge. File tools use Node.js fs directly with path validation
+ * to ensure operations stay within the project directory.
  */
 export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
   const { cwd, mcpServers, mcpClient, signal, onUpdate } = options;
 
-  // For Phase 2, we're building the structure.
-  // In Phase 3, these will be actual Pi tool calls via the host bridge.
+  // Create file tools scoped to the project directory
+  const fileTools = createFileTools({ projectRoot: cwd });
 
   const bindings: ToolBindings = {
     async read(params) {
       if (signal?.aborted) throw new Error("Execution cancelled");
-      // TODO: Phase 3 - call Pi's read tool via host bridge
-      return `[read: ${params.path} - Phase 3 implementation pending]`;
+      return fileTools.read(params);
     },
 
     async write(params) {
       if (signal?.aborted) throw new Error("Execution cancelled");
-      // TODO: Phase 3 - call Pi's write tool via host bridge
-      console.log(`[write: ${params.path} - Phase 3 implementation pending]`);
+      return fileTools.write(params);
     },
 
     async edit(params) {
       if (signal?.aborted) throw new Error("Execution cancelled");
-      // TODO: Phase 3 - call Pi's edit tool via host bridge
-      return `[edit: ${params.path} - Phase 3 implementation pending]`;
+      return fileTools.edit(params);
     },
 
     async search_tools(params) {
