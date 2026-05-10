@@ -5,7 +5,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExecutorKind } from "./executor/index.js";
 
+export type CodemodeMode = "off" | "safe" | "yolo";
+
 export interface CodemodeConfig {
+  mode: CodemodeMode;
   executor: {
     type: ExecutorKind;
     timeoutMs: number;
@@ -38,6 +41,7 @@ type ConfigInput = Omit<Partial<CodemodeConfig>, "executor"> & {
 };
 
 const DEFAULT_CONFIG: CodemodeConfig = {
+  mode: "yolo",
   executor: {
     type: "quickjs",
     timeoutMs: 120_000,
@@ -45,6 +49,7 @@ const DEFAULT_CONFIG: CodemodeConfig = {
 };
 
 const EXECUTOR_KINDS = new Set<ExecutorKind>(["quickjs", "deno"]);
+const CODEMODE_MODES = new Set<CodemodeMode>(["off", "safe", "yolo"]);
 
 /**
  * Load codemode configuration from global and project config files.
@@ -107,6 +112,11 @@ function mergeConfig(base: ConfigInput, override: ConfigInput): ConfigInput {
 }
 
 function normalizeConfig(config: ConfigInput): CodemodeConfig {
+  const mode = config.mode ?? DEFAULT_CONFIG.mode;
+  if (!CODEMODE_MODES.has(mode)) {
+    throw new Error(`Unsupported codemode mode '${String(mode)}'. Supported modes: off, safe, yolo`);
+  }
+
   const executor = config.executor ?? DEFAULT_CONFIG.executor;
   const type = executor.type ?? DEFAULT_CONFIG.executor.type;
   if (!EXECUTOR_KINDS.has(type)) {
@@ -117,6 +127,7 @@ function normalizeConfig(config: ConfigInput): CodemodeConfig {
 
   return {
     ...config,
+    mode,
     executor: {
       type,
       timeoutMs: executor.timeoutMs ?? DEFAULT_CONFIG.executor.timeoutMs,

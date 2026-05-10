@@ -93,6 +93,7 @@ describe("mcp client", () => {
   test("merges codemode-specific MCP servers into adapter config", () => {
     const client = createMcpClient({
       config: {
+        mode: "yolo",
         executor: { type: "quickjs", timeoutMs: 120_000 },
         mcp: {
           servers: {

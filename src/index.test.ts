@@ -1,7 +1,15 @@
 /* eslint-disable vitest/require-mock-type-parameters */
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const loadConfig = vi.fn(() => ({ executor: { type: "quickjs" as const, timeoutMs: 1234 } }));
+type TestConfig = {
+  mode: "off" | "safe" | "yolo";
+  executor: { type: "quickjs"; timeoutMs: number };
+};
+
+const loadConfig = vi.fn<() => TestConfig>(() => ({
+  mode: "yolo",
+  executor: { type: "quickjs", timeoutMs: 1234 },
+}));
 const shutdown = vi.fn(async () => {});
 const warmCache = vi.fn(async () => []);
 const getServers = vi.fn(() => []);
@@ -46,6 +54,7 @@ function createPiMock() {
     getAllTools: vi.fn(() => [
       { name: "read", description: "Read files" },
       { name: "execute_tools", description: "Run codemode" },
+      { name: "bash", description: "Run shell commands" },
     ]),
     setActiveTools: vi.fn((tools: string[]) => activeTools.push(tools)),
   };
@@ -56,7 +65,10 @@ function createPiMock() {
 describe("codemodeExtension", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    loadConfig.mockReturnValue({ executor: { type: "quickjs" as const, timeoutMs: 1234 } });
+    loadConfig.mockReturnValue({
+      mode: "yolo",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    });
     getServers.mockReturnValue([]);
   });
 
@@ -87,7 +99,7 @@ describe("codemodeExtension", () => {
     expect(initShell).toHaveBeenCalledWith(expect.objectContaining({ projectRoot: process.cwd() }));
   });
 
-  test("session_start leaves codemode off by default and native prompt guidance is used", async () => {
+  test("session_start defaults to yolo mode with execute_tools and native bash", async () => {
     const { default: codemodeExtension } = await import("./index.js");
     const { pi, handlers, ctx } = createPiMock();
     codemodeExtension(pi as never);
@@ -98,41 +110,94 @@ describe("codemodeExtension", () => {
     };
 
     expect(pi.getActiveTools).toHaveBeenCalled();
-    expect(pi.setActiveTools).not.toHaveBeenCalled();
-    expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "Codemode disabled by default — use /codemode to enable",
-      "info",
-    );
-    expect(prompt.systemPrompt).toContain("## Native Tool Guidance");
-    expect(prompt.systemPrompt).not.toContain("## Code Mode");
+    expect(pi.setActiveTools).toHaveBeenCalledWith(["execute_tools", "bash"]);
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode yolo mode enabled", "info");
+    expect(prompt.systemPrompt).toContain("## Code Mode (yolo)");
+    expect(prompt.systemPrompt).toContain("native bash is available");
   });
 
-  test("codemode flag enables activation on session_start", async () => {
+  test("safe mode activates execute_tools only and prompts accordingly", async () => {
+    loadConfig.mockReturnValue({
+      mode: "safe",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    });
     const { default: codemodeExtension } = await import("./index.js");
     const { pi, handlers, ctx } = createPiMock();
-    pi.getFlag.mockImplementation((name?: string) => name === "codemode");
+    codemodeExtension(pi as never);
+
+    await handlers.get("session_start")?.({}, ctx);
+    const prompt = (await handlers.get("before_agent_start")?.({ systemPrompt: "base" })) as {
+      systemPrompt: string;
+    };
+
+    expect(pi.setActiveTools).toHaveBeenCalledWith(["execute_tools"]);
+    expect(prompt.systemPrompt).toContain("## Code Mode (safe)");
+    expect(prompt.systemPrompt).toContain("No native bash tool is exposed");
+  });
+
+  test("off mode leaves native tools active and prompt guidance native", async () => {
+    loadConfig.mockReturnValue({
+      mode: "off",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    });
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+
+    await handlers.get("session_start")?.({}, ctx);
+    const prompt = (await handlers.get("before_agent_start")?.({ systemPrompt: "base" })) as {
+      systemPrompt: string;
+    };
+
+    expect(pi.setActiveTools).not.toHaveBeenCalled();
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode off — normal Pi tools active", "info");
+    expect(prompt.systemPrompt).toContain("## Native Tool Guidance");
+  });
+
+  test("yolo mode degrades when native bash is unavailable", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, ctx } = createPiMock();
+    pi.getAllTools.mockReturnValue([
+      { name: "read", description: "Read files" },
+      { name: "execute_tools", description: "Run codemode" },
+    ]);
     codemodeExtension(pi as never);
 
     await handlers.get("session_start")?.({}, ctx);
 
     expect(pi.setActiveTools).toHaveBeenCalledWith(["execute_tools"]);
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "Codemode enabled — TypeScript tool execution active",
-      "info",
+      "Codemode yolo requested but native bash is unavailable; using safe mode tools",
+      "warning",
     );
   });
 
-  test("/codemode toggles active tools on and off", async () => {
+  test("no-codemode flag starts in off mode", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, ctx } = createPiMock();
+    pi.getFlag.mockImplementation((name?: string) => name === "no-codemode");
+    codemodeExtension(pi as never);
+
+    await handlers.get("session_start")?.({}, ctx);
+
+    expect(pi.setActiveTools).not.toHaveBeenCalled();
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode off — normal Pi tools active", "info");
+  });
+
+  test("/codemode supports explicit modes and bare off-to-yolo toggle", async () => {
     const { default: codemodeExtension } = await import("./index.js");
     const { pi, handlers, commands, ctx } = createPiMock();
     codemodeExtension(pi as never);
     await handlers.get("session_start")?.({}, ctx);
 
-    await commands.get("codemode")?.handler([], ctx);
+    await commands.get("codemode")?.handler(["safe"], ctx);
+    await commands.get("codemode")?.handler(["off"], ctx);
     await commands.get("codemode")?.handler([], ctx);
 
-    expect(pi.setActiveTools).toHaveBeenNthCalledWith(1, ["execute_tools"]);
-    expect(pi.setActiveTools).toHaveBeenNthCalledWith(2, ["read", "write"]);
+    expect(pi.setActiveTools).toHaveBeenNthCalledWith(1, ["execute_tools", "bash"]);
+    expect(pi.setActiveTools).toHaveBeenNthCalledWith(2, ["execute_tools"]);
+    expect(pi.setActiveTools).toHaveBeenNthCalledWith(3, ["read", "write"]);
+    expect(pi.setActiveTools).toHaveBeenNthCalledWith(4, ["execute_tools", "bash"]);
   });
 
   test("session_shutdown closes MCP client", async () => {

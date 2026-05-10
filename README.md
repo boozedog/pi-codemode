@@ -4,12 +4,14 @@ Pi Codemode is a Pi extension that replaces many small tool calls with one typed
 
 ## Quickstart
 
-Install the package in Pi as an extension package, then start Pi in a project as usual. Codemode is disabled by default, so Pi starts with its normal tools. Use `/codemode` during a session, or start Pi with `--codemode`, to limit the active model-visible tool set to `execute_tools`.
+Install the package in Pi as an extension package, then start Pi in a project as usual. Codemode starts in configured mode; the default is `yolo`, which exposes both `execute_tools` and Pi's native `bash` tool when available.
 
 Useful controls:
 
-- `/codemode` toggles codemode on or off during a session.
-- `--codemode` starts Pi directly in codemode.
+- `/codemode yolo` exposes `execute_tools` plus native `bash` when available.
+- `/codemode safe` exposes only `execute_tools`.
+- `/codemode off` restores normal Pi tools.
+- Bare `/codemode` toggles `off <-> yolo`.
 
 ## The `execute_tools` shape
 
@@ -137,12 +139,15 @@ Default config:
 
 ```json
 {
+  "mode": "yolo",
   "executor": {
     "type": "quickjs",
     "timeoutMs": 120000
   }
 }
 ```
+
+`mode` can be `"yolo"`, `"safe"`, or `"off"`. In `yolo`, native `bash` is included if Pi provides it; if not, codemode gracefully falls back to `execute_tools` only and notifies you.
 
 Codemode-specific MCP servers and typed CLI capabilities can also be configured here:
 
@@ -177,7 +182,9 @@ Denied by default:
 - direct environment access
 - direct network access
 - subprocess spawning from generated code
-- unrestricted host bash or shell strings
+- unrestricted host bash or shell strings inside generated code
+
+In `yolo` mode, Pi's native `bash` tool is available outside `execute_tools` as an explicit escape hatch and has broader host access. Use `safe` mode when you want codemode-only tool access.
 - raw subprocess/argv passthrough from generated code
 - just-bash network and JS/Python runtimes
 

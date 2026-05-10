@@ -17,10 +17,33 @@ afterEach(async () => {
 });
 
 describe("loadConfig", () => {
-  test("defaults to QuickJS", () => {
+  test("defaults to yolo mode with QuickJS", () => {
     const config = loadConfig({ homeDir: "/missing-home", projectDir: "/missing-project" });
 
+    expect(config.mode).toBe("yolo");
     expect(config.executor).toEqual({ type: "quickjs", timeoutMs: 120_000 });
+  });
+
+  test("loads explicit safe and off modes", async () => {
+    const projectDir = await tempDir();
+    await mkdir(join(projectDir, ".pi"), { recursive: true });
+    await writeFile(join(projectDir, ".pi", "codemode.json"), JSON.stringify({ mode: "safe" }));
+
+    expect(loadConfig({ homeDir: "/missing-home", projectDir }).mode).toBe("safe");
+
+    await writeFile(join(projectDir, ".pi", "codemode.json"), JSON.stringify({ mode: "off" }));
+
+    expect(loadConfig({ homeDir: "/missing-home", projectDir }).mode).toBe("off");
+  });
+
+  test("rejects unsupported modes", async () => {
+    const projectDir = await tempDir();
+    await mkdir(join(projectDir, ".pi"), { recursive: true });
+    await writeFile(join(projectDir, ".pi", "codemode.json"), JSON.stringify({ mode: "turbo" }));
+
+    expect(() => loadConfig({ homeDir: "/missing-home", projectDir })).toThrow(
+      "Unsupported codemode mode 'turbo'",
+    );
   });
 
   test("merges global and project config with project taking precedence", async () => {

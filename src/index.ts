@@ -18,7 +18,7 @@ import {
 import { createExecuteTool } from "./execute-tool.js";
 import { createMcpClient, type McpClient } from "./mcp-client.js";
 import { createToolBindings } from "./tool-bindings.js";
-import { loadConfig, type CodemodeConfig } from "./config.js";
+import { loadConfig, type CodemodeConfig, type CodemodeMode } from "./config.js";
 import { initShell } from "./shell.js";
 
 export default function codemodeExtension(pi: ExtensionAPI) {
@@ -38,7 +38,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
   // --- State ---
 
-  let enabled = false;
+  let currentMode: CodemodeMode = "off";
   let originalTools: string[] = [];
   let mcpClient: McpClient | undefined;
   let mcpServers: McpServerInfo[] = [];
@@ -53,7 +53,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`Codemode: config load failed: ${message}`);
-    config = { executor: { type: "quickjs", timeoutMs: 120_000 } };
+    config = { mode: "yolo", executor: { type: "quickjs", timeoutMs: 120_000 } };
   }
 
   // --- Initialize shell integration ---
@@ -130,17 +130,8 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     }));
     buildSearchIndex(piTools, mcpServers, config.cli);
 
-    const startEnabled = pi.getFlag("codemode") as boolean;
-    if (!startEnabled) {
-      enabled = false;
-      ctx.ui.notify("Codemode disabled by default — use /codemode to enable", "info");
-      return;
-    }
-
-    // Activate codemode: only execute_tools visible to LLM
-    activateCodemode();
-
-    ctx.ui.notify("Codemode enabled — TypeScript tool execution active", "info");
+    const startMode: CodemodeMode = pi.getFlag("no-codemode") ? "off" : config.mode;
+    applyMode(startMode, ctx);
   });
 
   // --- Shutdown ---
@@ -154,8 +145,8 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- System prompt injection ---
 
   pi.on("before_agent_start", async (event: { systemPrompt: string }) => {
-    const addition = enabled
-      ? generateSystemPromptAddition(builtinTypeDefs, mcpSummary)
+    const addition = currentMode !== "off"
+      ? generateSystemPromptAddition(builtinTypeDefs, mcpSummary, currentMode)
       : generateNativeEditGuidance();
 
     return {
@@ -166,32 +157,48 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Toggle command ---
 
   pi.registerCommand("codemode", {
-    description: "Toggle code mode on/off",
-    handler: async (_args: string[], ctx: ExtensionContext) => {
-      enabled = !enabled;
-
-      if (enabled) {
-        activateCodemode();
-        ctx.ui.notify("Codemode enabled", "info");
-      } else {
-        deactivateCodemode();
-        ctx.ui.notify("Codemode disabled — all tools available", "info");
+    description: "Set code mode: yolo, safe, off (bare toggles off <-> yolo)",
+    handler: async (args: string[], ctx: ExtensionContext) => {
+      const requested = args[0] as CodemodeMode | undefined;
+      if (requested && !["off", "safe", "yolo"].includes(requested)) {
+        ctx.ui.notify("Usage: /codemode [yolo|safe|off]", "warning");
+        return;
       }
+      applyMode(requested ?? (currentMode === "off" ? "yolo" : "off"), ctx);
     },
   });
 
   // --- Helpers ---
 
-  function activateCodemode() {
-    pi.setActiveTools(["execute_tools"]);
-    enabled = true;
+  function applyMode(mode: CodemodeMode, ctx: ExtensionContext) {
+    if (mode === "off") {
+      deactivateCodemode();
+      ctx.ui.notify("Codemode off — normal Pi tools active", "info");
+      return;
+    }
+
+    const tools = mode === "yolo" && hasNativeBash() ? ["execute_tools", "bash"] : ["execute_tools"];
+    pi.setActiveTools(tools);
+    currentMode = mode;
+    if (mode === "yolo" && !tools.includes("bash")) {
+      ctx.ui.notify(
+        "Codemode yolo requested but native bash is unavailable; using safe mode tools",
+        "warning",
+      );
+      return;
+    }
+    ctx.ui.notify(`Codemode ${mode} mode enabled`, "info");
+  }
+
+  function hasNativeBash() {
+    return pi.getAllTools().some((tool) => tool.name === "bash");
   }
 
   function deactivateCodemode() {
-    if (originalTools.length > 0) {
+    if (currentMode !== "off" && originalTools.length > 0) {
       pi.setActiveTools(originalTools);
     }
-    enabled = false;
+    currentMode = "off";
   }
 }
 
@@ -204,9 +211,19 @@ interface ExtensionContext {
 /**
  * Generate the system prompt addition for codemode.
  */
-function generateSystemPromptAddition(builtinTypeDefs: string, mcpSummary: string): string {
+function generateSystemPromptAddition(
+  builtinTypeDefs: string,
+  mcpSummary: string,
+  mode: Exclude<CodemodeMode, "off">,
+): string {
+  const modeGuidance =
+    mode === "yolo"
+      ? "In yolo mode, native bash is available and has broader host access. Prefer codemode for structured tool use and use bash for shell-heavy one-offs."
+      : "In safe mode, use codemode-only workflows. No native bash tool is exposed.";
   return `\
-## Code Mode
+## Code Mode (${mode})
+
+${modeGuidance}
 
 You have access to tools through TypeScript code execution. Instead of calling tools
 individually, write TypeScript code that calls multiple tools and returns just what you need.
