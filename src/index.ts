@@ -130,9 +130,10 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- System prompt injection ---
 
   pi.on("before_agent_start", async (event: { systemPrompt: string }) => {
-    if (!enabled) return;
+    const addition = enabled
+      ? generateSystemPromptAddition(builtinTypeDefs, mcpSummary)
+      : generateNativeEditGuidance();
 
-    const addition = generateSystemPromptAddition(builtinTypeDefs, mcpSummary);
     return {
       systemPrompt: event.systemPrompt + "\n\n" + addition,
     };
@@ -291,13 +292,7 @@ code that contains string literals, or any text where JS quoting would be awkwar
 
 **When NOT needed:** Simple strings, paths, short text without special characters.
 
-### Edit guidance
-- \`oldText\` must be an exact literal substring from the original file
-- Each \`oldText\` must match exactly once
-- Edits are matched against the original file, not sequentially
-- Edits must not overlap
-- If two changes are close together, merge them into one larger edit
-- Use enough surrounding context to make \`oldText\` unique, but avoid huge unrelated blocks
+${generateEditGuidance()}
 
 ### Important
 - **Parallelize independent calls** — use \`Promise.all\` whenever calls don't depend on each other
@@ -306,4 +301,22 @@ code that contains string literals, or any text where JS quoting would be awkwar
 - Type errors are caught before execution — fix them based on the error messages
 - Runtime errors are caught and returned — fix your code if you see one
 `;
+}
+
+function generateNativeEditGuidance(): string {
+  return `\
+## Native Tool Guidance
+
+${generateEditGuidance()}`;
+}
+
+function generateEditGuidance(): string {
+  return `\
+### Edit guidance
+- When using \`edit\`, \`oldText\` must be an exact literal substring from the original file
+- Each \`oldText\` must match exactly once
+- Edits are matched against the original file, not sequentially
+- Edits must not overlap
+- If two changes are close together, merge them into one larger edit
+- Use enough surrounding context to make \`oldText\` unique, but avoid huge unrelated blocks`;
 }
