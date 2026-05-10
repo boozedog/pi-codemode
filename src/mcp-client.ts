@@ -145,6 +145,13 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
       await ensureConnected(namespace);
 
       const info = servers.get(namespace)!;
+      if (info.tools.length > 0 && !info.tools.some((t) => t.name === toolName)) {
+        const available = info.tools.map((t) => t.name).join(", ");
+        throw new Error(
+          `Unknown MCP tool: codemode.${namespace}.${toolName}(). Available: ${available}`,
+        );
+      }
+
       const connection = manager.getConnection(info.serverName);
       if (!connection) {
         throw new Error(`MCP server "${info.serverName}" failed to connect`);

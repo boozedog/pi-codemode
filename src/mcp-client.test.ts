@@ -1,11 +1,21 @@
 // mcp-client.test.ts — MCP client polish tests.
 
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+
+const state = vi.hoisted(() => ({ connectFails: true }));
 
 vi.mock("pi-mcp-adapter/server-manager.js", () => {
   class McpServerManager {
-    async connect(): Promise<never> {
-      throw new Error("should not connect in this test");
+    async connect(): Promise<unknown> {
+      if (state.connectFails) throw new Error("should not connect in this test");
+      return {
+        status: "connected",
+        tools: [
+          { name: "search_issues", description: "Search issues", inputSchema: {} },
+          { name: "create_issue", description: "Create issue", inputSchema: {} },
+        ],
+        resources: [],
+      };
     }
     getConnection(): undefined {
       return undefined;
@@ -43,6 +53,10 @@ vi.mock("pi-mcp-adapter/tool-registrar.js", () => ({
 import { createMcpClient } from "./mcp-client.js";
 
 describe("mcp client", () => {
+  beforeEach(() => {
+    state.connectFails = true;
+  });
+
   test("unknown namespace error lists available namespaces", async () => {
     const client = createMcpClient();
 
@@ -56,6 +70,15 @@ describe("mcp client", () => {
 
     await expect(client.call("github", "search_issues", {})).rejects.toThrow(
       'Failed to connect MCP server "github-mcp" (codemode.github): should not connect in this test',
+    );
+  });
+
+  test("unknown tool error lists available tools after connect", async () => {
+    state.connectFails = false;
+    const client = createMcpClient();
+
+    await expect(client.call("github", "serch_issues", {})).rejects.toThrow(
+      "Unknown MCP tool: codemode.github.serch_issues(). Available: search_issues, create_issue",
     );
   });
 });
