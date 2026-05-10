@@ -2,7 +2,11 @@
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ connectFails: true, needsAuth: false }));
+const state = vi.hoisted(() => ({
+  connectFails: true,
+  needsAuth: false,
+  savedCache: undefined as unknown,
+}));
 
 vi.mock("pi-mcp-adapter/server-manager.js", () => {
   class McpServerManager {
@@ -41,9 +45,11 @@ vi.mock("pi-mcp-adapter/metadata-cache.js", () => ({
   computeServerHash: () => "hash",
   isServerCacheValid: () => false,
   loadMetadataCache: () => null,
-  saveMetadataCache: () => {},
+  saveMetadataCache: (cache: unknown) => {
+    state.savedCache = cache;
+  },
   serializeResources: () => [],
-  serializeTools: () => [],
+  serializeTools: (tools: unknown) => tools,
 }));
 
 vi.mock("pi-mcp-adapter/tool-registrar.js", () => ({
@@ -56,6 +62,7 @@ describe("mcp client", () => {
   beforeEach(() => {
     state.connectFails = true;
     state.needsAuth = false;
+    state.savedCache = undefined;
   });
 
   test("unknown namespace error lists available namespaces", async () => {
@@ -91,5 +98,27 @@ describe("mcp client", () => {
     await expect(client.call("github", "search_issues", {})).rejects.toThrow(
       'MCP server "github-mcp" (codemode.github) requires authentication. Configure/authenticate it in pi-mcp-adapter first.',
     );
+  });
+
+  test("successful connection refreshes metadata cache", async () => {
+    state.connectFails = false;
+    const client = createMcpClient();
+
+    await expect(client.call("github", "serch_issues", {})).rejects.toThrow("Unknown MCP tool");
+
+    expect(state.savedCache).toEqual({
+      version: 1,
+      servers: {
+        "github-mcp": {
+          configHash: "hash",
+          tools: [
+            { name: "search_issues", description: "Search issues", inputSchema: {} },
+            { name: "create_issue", description: "Create issue", inputSchema: {} },
+          ],
+          resources: [],
+          cachedAt: expect.any(Number),
+        },
+      },
+    });
   });
 });
