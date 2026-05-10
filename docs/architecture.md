@@ -9,7 +9,7 @@ Pi Codemode exposes one primary Pi tool, `execute_tools`, where the model writes
 - codemode-only MCP tools
 - discovery helpers such as `search_tools` and `describe_tools`
 
-The generated API is `codemode.*`:
+The generated API exposes Pi-aligned top-level file helpers plus `codemode.*` for discovery and MCP namespaces:
 
 ```ts
 const [pkg, readme] = await Promise.all([
@@ -17,9 +17,16 @@ const [pkg, readme] = await Promise.all([
   read({ path: "README.md" }),
 ]);
 
+await edit({
+  path: "src/index.ts",
+  edits: [{ oldText: "exact unique original text", newText: "replacement" }],
+});
+
 const todos = await $`rg TODO src`;
 return { pkg, readme, todos };
 ```
+
+The codemode `edit` helper intentionally mirrors Pi's native exact-replacement schema. Each `oldText` must match exactly once in the original file, edits must not overlap, and nearby edits should be merged into one larger replacement. When codemode is disabled, the extension injects the same concise native `edit` guidance into the system prompt because Pi does not currently document an extension API for overriding built-in tool descriptions in place.
 
 ## Target stack
 
