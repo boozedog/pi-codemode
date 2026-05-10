@@ -13,6 +13,18 @@ export interface CodemodeConfig {
   mcp?: {
     servers?: Record<string, unknown>;
   };
+  cli?: CliConfig;
+}
+
+export type CliConfig = Record<string, CliToolConfig>;
+
+export interface CliToolConfig {
+  backend: "host" | "just-bash";
+  operations: string[] | Record<string, CliOperationConfig>;
+}
+
+export interface CliOperationConfig {
+  timeoutMs?: number;
 }
 
 export interface LoadConfigOptions {
@@ -81,6 +93,13 @@ function mergeConfig(base: ConfigInput, override: ConfigInput): ConfigInput {
                     ...override.mcp?.servers,
                   }
                 : undefined,
+          }
+        : undefined,
+    cli:
+      base.cli || override.cli
+        ? {
+            ...base.cli,
+            ...override.cli,
           }
         : undefined,
   };

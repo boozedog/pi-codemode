@@ -35,8 +35,7 @@ Generated code only receives explicit globals:
 - `codemode.list_tools({ namespace, offset?, limit? })` lists cached MCP tools with pagination.
 - `codemode.describe_tools({ namespace, tool? })` shows MCP namespace/tool details.
 - `codemode.<namespace>.<tool>(args)` calls configured MCP tools.
-- `$\`command\`` runs a just-bash command.
-- `shell({ command })` runs a just-bash command from a string.
+- `cli.<tool>.<operation>(args)` calls configured typed CLI capabilities.
 - `print(...args)` emits result output.
 - `π.key` reads string constants passed in the `strings` parameter.
 
@@ -81,15 +80,16 @@ const [pkg, tsconfig, readme] = await Promise.all([
 return { files: [pkg.length, tsconfig.length, readme.length] };
 ```
 
-## Shell support and limitations
+## CLI capabilities
 
-`$` and `shell()` use `just-bash`; they are not unrestricted host bash. The shell sees scoped mounts, typically:
+Codemode does not expose a shell-string API. There is no `$`, `shell()`, `bash -c`, or raw argv passthrough in generated code. Instead, configured typed command capabilities are exposed under `cli`:
 
-- `/workspace` mapped to the project root, read/write
-- `/tmp` as temporary in-memory space
-- optional in-memory home/reference mounts
+```ts
+const status = await cli.git.status({ short: true, branch: true });
+const hits = await cli.rg.search({ pattern: "TODO", paths: ["src"], lineNumber: true });
+```
 
-Network is disabled by default. JavaScript/Python runtimes inside just-bash are disabled by default. Generated code has no direct host filesystem or subprocess access; shell workflows must go through `$` or `shell()`.
+Each `cli` tool/operation must be allowlisted in config. Backends may be native host commands or `just-bash` commands. `just-bash` still uses scoped mounts internally, typically `/workspace` mapped to the project root read/write and `/tmp` as in-memory temp space. Network and JS/Python runtimes remain disabled by default.
 
 ## MCP discovery workflow
 
@@ -127,7 +127,7 @@ Default config:
 }
 ```
 
-Codemode-specific MCP servers can also be configured here and are merged with `pi-mcp-adapter` MCP config:
+Codemode-specific MCP servers and typed CLI capabilities can also be configured here:
 
 ```json
 {
@@ -135,6 +135,11 @@ Codemode-specific MCP servers can also be configured here and are merged with `p
     "servers": {
       "github-mcp": { "command": "github-mcp" }
     }
+  },
+  "cli": {
+    "git": { "backend": "host", "operations": ["status", "branch"] },
+    "gh": { "backend": "host", "operations": ["issueView", "issueList", "prView", "prList"] },
+    "rg": { "backend": "host", "operations": ["search"] }
   }
 }
 ```
@@ -152,10 +157,11 @@ Denied by default:
 - direct environment access
 - direct network access
 - subprocess spawning from generated code
-- unrestricted host bash
+- unrestricted host bash or shell strings
+- raw subprocess/argv passthrough from generated code
 - just-bash network and JS/Python runtimes
 
-Allowed capabilities are only the injected globals listed above. File tools validate paths against the project root and reject traversal outside it.
+Allowed capabilities are only the injected globals listed above. File tools validate paths against the project root and reject traversal outside it. Enabling host-backed `cli` operations expands trust boundaries and should be reviewed in config.
 
 ## Development
 

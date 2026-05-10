@@ -94,16 +94,8 @@ export class DenoExecutor implements CodeExecutor {
     // Flatten all functions into a single record for lookup
     const allFns: Record<string, (args: unknown) => unknown | Promise<unknown>> = {};
     for (const provider of providers) {
-      for (const [name, fn] of Object.entries(provider.fns)) {
-        if (typeof fn !== "function") continue;
-        const key = provider.name ? `${provider.name}.${name}` : name;
-        allFns[key] = fn as (args: unknown) => unknown | Promise<unknown>;
-        // The default codemode provider is exposed both as codemode.foo() and
-        // bare host calls from the bootstrap (foo, $, shell).
-        if (provider.name === "codemode") {
-          allFns[name] = fn as (args: unknown) => unknown | Promise<unknown>;
-        }
-      }
+      flattenProviderFns(provider.name, provider.fns, allFns);
+      if (provider.name === "codemode") flattenProviderFns("", provider.fns, allFns);
     }
 
     // Spawn Deno process
@@ -296,6 +288,22 @@ export class DenoExecutor implements CodeExecutor {
         // Ignore cleanup errors
       }
       this.#bootstrapPath = null;
+    }
+  }
+}
+
+function flattenProviderFns(
+  prefix: string,
+  value: unknown,
+  out: Record<string, (args: unknown) => unknown | Promise<unknown>>,
+): void {
+  if (!value || typeof value !== "object") return;
+  for (const [key, child] of Object.entries(value)) {
+    const name = prefix ? `${prefix}.${key}` : key;
+    if (typeof child === "function") {
+      out[name] = child as (args: unknown) => unknown | Promise<unknown>;
+    } else {
+      flattenProviderFns(name, child, out);
     }
   }
 }

@@ -8,7 +8,8 @@
 
 import type { JSONSchema7, JSONSchema7Definition } from "json-schema";
 import type { McpServerInfo } from "./search.js";
-import { generateShellTypeDefs } from "./shell.js";
+import type { CliConfig } from "./config.js";
+import { configuredOperations } from "./cli.js";
 
 // Top-level file tool descriptors mirror Pi's native tool names and schemas.
 const fileToolDescriptors: Record<string, { description?: string; inputSchema: JSONSchema7 }> = {
@@ -224,7 +225,56 @@ function schemaToType(schema: JSONSchema7Definition | undefined, required: strin
 /**
  * Generate the type definition string for built-in tools.
  */
-export function generateBuiltinTypeDefs(): string {
+export function generateCliTypeDefs(config?: CliConfig): string {
+  const parts = [
+    "interface CommandResult { stdout: string; stderr: string; exitCode: number; stdoutFile?: string; stderrFile?: string; }",
+    "interface CliTools {",
+  ];
+  for (const [tool, toolConfig] of Object.entries(config ?? {})) {
+    const ops = configuredOperations(toolConfig);
+    const lines = ops.map((op) => cliOperationSignature(tool, op)).filter(Boolean);
+    if (lines.length > 0) parts.push(`  ${sanitizeIdentifier(tool)}: { ${lines.join(" ")} };`);
+  }
+  parts.push("}", "declare const cli: CliTools;");
+  return parts.join("\n");
+}
+
+function cliOperationSignature(tool: string, operation: string): string {
+  const signatures: Record<string, Record<string, string>> = {
+    git: {
+      status: "status(args?: { short?: boolean; branch?: boolean }): Promise<CommandResult>;",
+      branch: "branch(args?: { showCurrent?: boolean }): Promise<CommandResult>;",
+    },
+    gh: {
+      issueView:
+        "issueView(args: { number: number; repo?: string; json?: string[] }): Promise<CommandResult>;",
+      issueList:
+        'issueList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number }): Promise<CommandResult>;',
+      prView:
+        "prView(args: { number: number; repo?: string; json?: string[] }): Promise<CommandResult>;",
+      prList:
+        'prList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number }): Promise<CommandResult>;',
+    },
+    rg: {
+      search:
+        "search(args: { pattern: string; paths?: string[]; glob?: string[]; ignoreCase?: boolean; lineNumber?: boolean; hidden?: boolean; maxCount?: number }): Promise<CommandResult>;",
+    },
+    find: {
+      files:
+        'files(args?: { path?: string; name?: string; maxDepth?: number; type?: "file" | "directory" }): Promise<CommandResult>;',
+    },
+    grep: {
+      search:
+        "search(args: { pattern: string; paths?: string[]; recursive?: boolean; ignoreCase?: boolean }): Promise<CommandResult>;",
+    },
+    ls: {
+      list: "list(args?: { path?: string; all?: boolean; long?: boolean }): Promise<CommandResult>;",
+    },
+  };
+  return signatures[tool]?.[operation] ?? "";
+}
+
+export function generateBuiltinTypeDefs(config?: { cli?: CliConfig }): string {
   // Generate types from JSON Schema descriptors
   void fileToolDescriptors;
   const generated = generateTypesFromJsonSchema(builtinToolDescriptors);
@@ -267,7 +317,7 @@ declare function print(...args: any[]): void;
 /** Named string constants passed via the 'strings' parameter. Use for file content that's hard to quote in JS. */
 declare const π: Readonly<Record<string, string>>;
 
-${generateShellTypeDefs()}
+${generateCliTypeDefs(config?.cli)}
 `;
 }
 

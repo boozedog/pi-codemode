@@ -58,8 +58,7 @@ const bindings = {
   list_mcp_servers: async () => "",
   list_tools: async () => "",
   describe_tools: async () => "",
-  $: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
-  shell: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+  cli: {},
   progress: () => undefined,
 } satisfies ToolBindings;
 

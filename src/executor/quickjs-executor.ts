@@ -124,8 +124,17 @@ export class QuickJsExecutor implements CodeExecutor {
 				globalThis.read = function(args) { return globalThis.__hostCall('read', args ?? {}); };
 				globalThis.write = function(args) { return globalThis.__hostCall('write', args ?? {}); };
 				globalThis.edit = function(args) { return globalThis.__hostCall('edit', args ?? {}); };
-				globalThis.$ = function(parts, ...values) { return globalThis.__hostCall('$', { parts: Array.from(parts), values }); };
-				globalThis.shell = function(args) { return globalThis.__hostCall('shell', args ?? {}); };
+				globalThis.cli = new Proxy({}, {
+					get(_target, tool) {
+						if (tool === 'then') return undefined;
+						return new Proxy({}, {
+							get(_toolTarget, operation) {
+								if (operation === 'then') return undefined;
+								return function(args) { return globalThis.__hostCall('cli.' + String(tool) + '.' + String(operation), args ?? {}); };
+							}
+						});
+					}
+				});
 				globalThis.console = { log: print, info: print, warn: print, error: print };
 			`);
       if (setup.error) {
@@ -210,8 +219,7 @@ export class QuickJsExecutor implements CodeExecutor {
         globalThis.write = undefined;
         globalThis.edit = undefined;
         globalThis.codemode = undefined;
-        globalThis.$ = undefined;
-        globalThis.shell = undefined;
+        globalThis.cli = undefined;
         globalThis.print = undefined;
         globalThis.console = undefined;
         globalThis.π = undefined;

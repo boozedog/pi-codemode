@@ -5,8 +5,9 @@
 
 import type { AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
 import { searchTools } from "./search.js";
-import { executeJustBash } from "./shell.js";
+import { createCliBindings } from "./cli.js";
 import { generateToolSignature, generateParamSummary } from "./type-generator.js";
+import type { CliConfig } from "./config.js";
 import { createFileTools } from "./file-tools.js";
 import type { McpClient } from "./mcp-client.js";
 import type { McpServerInfo } from "./search.js";
@@ -23,15 +24,7 @@ export interface ToolBindings {
   list_mcp_servers(): Promise<string>;
   list_tools(params: { namespace: string; offset?: number; limit?: number }): Promise<string>;
   describe_tools(params: { namespace: string; tool?: string }): Promise<string>;
-  $(params: {
-    parts: string[];
-    values: unknown[];
-  }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
-  shell(params: {
-    command: string;
-    cwd?: string;
-    timeoutMs?: number;
-  }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  cli: Record<string, unknown>;
   progress(message: string): void;
   /** MCP server namespaces are added dynamically */
   [serverNamespace: string]: unknown;
@@ -45,6 +38,8 @@ export interface ToolBindingsOptions {
   mcpClient?: McpClient;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
+  /** Configured typed CLI capabilities */
+  cli?: CliConfig;
   /** Callback for streaming progress to the UI */
   onUpdate?: AgentToolUpdateCallback;
 }
@@ -106,31 +101,7 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
       return listServerTools(server, params.offset, params.limit);
     },
 
-    async $(params) {
-      if (signal?.aborted) throw new Error("Execution cancelled");
-      let command = "";
-      for (let i = 0; i < params.parts.length; i++) {
-        command += params.parts[i];
-        if (i < params.values.length) {
-          const value = params.values[i];
-          if (typeof value === "string") {
-            command += "'" + value.replace(/'/g, "'\\''") + "'";
-          } else {
-            command += String(value);
-          }
-        }
-      }
-      return executeJustBash(cwd, command.trim());
-    },
-
-    async shell(params) {
-      if (signal?.aborted) throw new Error("Execution cancelled");
-      let command = params.command;
-      if (params.cwd && params.cwd !== "/workspace") {
-        command = `cd '${params.cwd.replace(/'/g, "'\\''")}' && ${command}`;
-      }
-      return executeJustBash(cwd, command, { timeoutMs: params.timeoutMs });
-    },
+    cli: createCliBindings(options.cli, cwd, signal),
 
     async describe_tools(params) {
       // Handle built-in tools

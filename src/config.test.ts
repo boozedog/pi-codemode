@@ -77,6 +77,28 @@ describe("loadConfig", () => {
     });
   });
 
+  test("merges CLI config near MCP config", async () => {
+    const homeDir = await tempDir();
+    const projectDir = await tempDir();
+    await mkdir(join(homeDir, ".pi", "agent"), { recursive: true });
+    await mkdir(join(projectDir, ".pi"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".pi", "agent", "codemode.json"),
+      JSON.stringify({ cli: { git: { backend: "host", operations: ["status"] } } }),
+    );
+    await writeFile(
+      join(projectDir, ".pi", "codemode.json"),
+      JSON.stringify({ cli: { gh: { backend: "host", operations: { issueView: {} } } } }),
+    );
+
+    const config = loadConfig({ homeDir, projectDir });
+
+    expect(config.cli).toEqual({
+      git: { backend: "host", operations: ["status"] },
+      gh: { backend: "host", operations: { issueView: {} } },
+    });
+  });
+
   test("rejects unsupported executor types", async () => {
     const projectDir = await tempDir();
     await mkdir(join(projectDir, ".pi"), { recursive: true });

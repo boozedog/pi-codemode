@@ -114,44 +114,36 @@ describe("QuickJsExecutor", () => {
     expect(result.result).toBe(42);
   });
 
-  test("exposes shell globals through host calls", async () => {
+  test("exposes cli namespace through host calls", async () => {
     const executor = new QuickJsExecutor({ timeout: 5_000 });
     const calls: unknown[] = [];
     const result = await executor.execute(
       `
-        const a = await $` +
-        "`echo ${π.name}`" +
-        `;
-        const b = await shell({ command: "pwd" });
-        return { a, b };
+        const a = await cli.git.status({ short: true });
+        return { a };
       `,
       [
         {
           name: "codemode",
           fns: {
-            $: async (args: unknown) => {
-              calls.push({ name: "$", args });
-              return { stdout: "hello\n", stderr: "", exitCode: 0 };
-            },
-            shell: async (args: unknown) => {
-              calls.push({ name: "shell", args });
-              return { stdout: "/workspace\n", stderr: "", exitCode: 0 };
+            cli: {
+              git: {
+                status: async (args: unknown) => {
+                  calls.push({ name: "cli.git.status", args });
+                  return { stdout: " M file\n", stderr: "", exitCode: 0 };
+                },
+              },
             },
           },
         },
       ],
-      { strings: { name: "world" } },
     );
 
     expect(result.error).toBeUndefined();
     expect(result.result).toEqual({
-      a: { stdout: "hello\n", stderr: "", exitCode: 0 },
-      b: { stdout: "/workspace\n", stderr: "", exitCode: 0 },
+      a: { stdout: " M file\n", stderr: "", exitCode: 0 },
     });
-    expect(calls).toEqual([
-      { name: "$", args: { parts: ["echo ", ""], values: ["world"] } },
-      { name: "shell", args: { command: "pwd" } },
-    ]);
+    expect(calls).toEqual([{ name: "cli.git.status", args: { short: true } }]);
   });
 
   test("captures console output", async () => {

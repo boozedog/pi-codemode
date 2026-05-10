@@ -133,12 +133,24 @@ function setupGlobals(userStrings: Record<string, string>): void {
     },
   );
 
-  // Shell tagged template backed by host just-bash, not host bash.
-  (globalThis as any).$ = (parts: TemplateStringsArray, ...values: unknown[]) =>
-    callTool("$", { parts: Array.from(parts), values });
-
-  // Shell function form for dynamic commands.
-  (globalThis as any).shell = (args: unknown) => callTool("shell", args ?? {});
+  (globalThis as any).cli = new Proxy(
+    {},
+    {
+      get(_, tool: string) {
+        if (tool === "then") return undefined;
+        return new Proxy(
+          {},
+          {
+            get(_, operation: string) {
+              if (operation === "then") return undefined;
+              return (args?: unknown) =>
+                callTool(`cli.${String(tool)}.${String(operation)}`, args ?? {});
+            },
+          },
+        );
+      },
+    },
+  );
 
   // print() sends log messages to host
   (globalThis as any).print = (...args: unknown[]) => {

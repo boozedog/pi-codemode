@@ -18,7 +18,7 @@ import {
 import { createExecuteTool } from "./execute-tool.js";
 import { createMcpClient, type McpClient } from "./mcp-client.js";
 import { createToolBindings } from "./tool-bindings.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, type CodemodeConfig } from "./config.js";
 import { initShell } from "./shell.js";
 
 export default function codemodeExtension(pi: ExtensionAPI) {
@@ -41,13 +41,13 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   initTypeChecker();
 
   // --- Load configuration ---
-  let config;
+  let config: CodemodeConfig;
   try {
     config = loadConfig();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`Codemode: config load failed: ${message}`);
-    config = { executor: { type: "quickjs" as const, timeoutMs: 120_000 } };
+    config = { executor: { type: "quickjs", timeoutMs: 120_000 } };
   }
 
   // --- Initialize shell integration ---
@@ -67,7 +67,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   }
 
   // --- Build type definitions ---
-  const builtinTypeDefs = generateBuiltinTypeDefs();
+  const builtinTypeDefs = generateBuiltinTypeDefs({ cli: config.cli });
   const mcpTypeDefs = generateMcpServerTypeDefs(mcpServers);
   const typeCheckerTypeDefs = builtinTypeDefs + "\n" + mcpTypeDefs;
   const mcpSummary = generateMcpSummaryForPrompt(mcpServers);
@@ -85,6 +85,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       cwd,
       mcpServers,
       mcpClient,
+      cli: config.cli,
       signal,
       onUpdate,
     });
@@ -225,8 +226,8 @@ return { deps: Object.keys(JSON.parse(pkg).dependencies || {}) };
 
 \`\`\`typescript
 const [gitStatus, gitBranch] = await Promise.all([
-  $\`git status --porcelain\`,
-  $\`git branch --show-current\`,
+  cli.git.status({ short: true }),
+  cli.git.branch({ showCurrent: true }),
 ]);
 return {
   dirty: gitStatus.stdout.trim().length > 0,
@@ -240,8 +241,8 @@ Chain calls when a later step depends on an earlier result.
 
 \`\`\`typescript
 // Step 1: Find files
-const result = await $\`find src -name '*.test.ts'\`;
-const files = result.stdout.split('\\n').filter(f => f.trim());
+const result = await cli.rg.search({ pattern: "describe|test|it", paths: ["src"], glob: ["*.test.ts"] });
+const files = [...new Set(result.stdout.split('\\n').map(line => line.split(':')[0]).filter(Boolean))];
 
 // Step 2: Read all found files in parallel
 const contents = await Promise.all(
