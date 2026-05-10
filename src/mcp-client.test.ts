@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   connectFails: true,
   needsAuth: false,
   savedCache: undefined as unknown,
+  saveCacheFails: false,
 }));
 
 vi.mock("pi-mcp-adapter/server-manager.js", () => {
@@ -46,6 +47,7 @@ vi.mock("pi-mcp-adapter/metadata-cache.js", () => ({
   isServerCacheValid: () => false,
   loadMetadataCache: () => null,
   saveMetadataCache: (cache: unknown) => {
+    if (state.saveCacheFails) throw new Error("cache write failed");
     state.savedCache = cache;
   },
   serializeResources: () => [],
@@ -63,6 +65,7 @@ describe("mcp client", () => {
     state.connectFails = true;
     state.needsAuth = false;
     state.savedCache = undefined;
+    state.saveCacheFails = false;
   });
 
   test("unknown namespace error lists available namespaces", async () => {
@@ -120,5 +123,15 @@ describe("mcp client", () => {
         },
       },
     });
+  });
+
+  test("metadata cache write failure does not block connected tool metadata", async () => {
+    state.connectFails = false;
+    state.saveCacheFails = true;
+    const client = createMcpClient();
+
+    await expect(client.call("github", "serch_issues", {})).rejects.toThrow(
+      "Unknown MCP tool: codemode.github.serch_issues(). Available: search_issues, create_issue",
+    );
   });
 });

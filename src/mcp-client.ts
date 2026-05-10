@@ -119,17 +119,21 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
     servers.set(namespace, { serverName, namespace, tools });
     connectedServers.add(serverName);
 
-    saveMetadataCache({
-      version: 1,
-      servers: {
-        [serverName]: {
-          configHash: computeServerHash(def),
-          tools: serializeTools(connection.tools),
-          resources: serializeResources(connection.resources),
-          cachedAt: Date.now(),
+    try {
+      saveMetadataCache({
+        version: 1,
+        servers: {
+          [serverName]: {
+            configHash: computeServerHash(def),
+            tools: serializeTools(connection.tools),
+            resources: serializeResources(connection.resources),
+            cachedAt: Date.now(),
+          },
         },
-      },
-    });
+      });
+    } catch {
+      // Cache persistence is best-effort; do not fail an otherwise valid MCP connection.
+    }
   }
 
   return {
