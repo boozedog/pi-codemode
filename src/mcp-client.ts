@@ -107,7 +107,7 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
 
     if (connection.status === "needs-auth") {
       throw new Error(
-        `MCP server "${serverName}" requires authentication. Configure/authenticate it in pi-mcp-adapter first.`,
+        `MCP server "${serverName}" (codemode.${namespace}) requires authentication. Configure/authenticate it in pi-mcp-adapter first.`,
       );
     }
 

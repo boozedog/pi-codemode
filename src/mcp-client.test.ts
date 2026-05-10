@@ -2,14 +2,14 @@
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ connectFails: true }));
+const state = vi.hoisted(() => ({ connectFails: true, needsAuth: false }));
 
 vi.mock("pi-mcp-adapter/server-manager.js", () => {
   class McpServerManager {
     async connect(): Promise<unknown> {
       if (state.connectFails) throw new Error("should not connect in this test");
       return {
-        status: "connected",
+        status: state.needsAuth ? "needs-auth" : "connected",
         tools: [
           { name: "search_issues", description: "Search issues", inputSchema: {} },
           { name: "create_issue", description: "Create issue", inputSchema: {} },
@@ -55,6 +55,7 @@ import { createMcpClient } from "./mcp-client.js";
 describe("mcp client", () => {
   beforeEach(() => {
     state.connectFails = true;
+    state.needsAuth = false;
   });
 
   test("unknown namespace error lists available namespaces", async () => {
@@ -79,6 +80,16 @@ describe("mcp client", () => {
 
     await expect(client.call("github", "serch_issues", {})).rejects.toThrow(
       "Unknown MCP tool: codemode.github.serch_issues(). Available: search_issues, create_issue",
+    );
+  });
+
+  test("auth-required error names the server and namespace", async () => {
+    state.connectFails = false;
+    state.needsAuth = true;
+    const client = createMcpClient();
+
+    await expect(client.call("github", "search_issues", {})).rejects.toThrow(
+      'MCP server "github-mcp" (codemode.github) requires authentication. Configure/authenticate it in pi-mcp-adapter first.',
     );
   });
 });
