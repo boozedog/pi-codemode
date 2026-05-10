@@ -44,6 +44,19 @@ describe("cli command capabilities", () => {
     expect(types).not.toContain("issueView");
   });
 
+  test("type definitions allow overriding gh list json fields", () => {
+    const types = generateBuiltinTypeDefs({
+      cli: { gh: { backend: "host", operations: ["issueList", "prList"] } },
+    });
+
+    expect(types).toContain(
+      'issueList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number; json?: string[] })',
+    );
+    expect(types).toContain(
+      'prList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number; json?: string[] })',
+    );
+  });
+
   test("runs configured host-backed ripgrep with typed args", async () => {
     const cwd = tempProject();
     writeFileSync(join(cwd, "a.txt"), "alpha\nbeta\n");
@@ -135,18 +148,50 @@ describe("cli command capabilities", () => {
       "branch",
       "--show-current",
     ]);
-    expect(
-      buildCliArgv("gh", "issueView", { number: 13, repo: "owner/repo", json: ["title", "state"] }),
-    ).toEqual(["issue", "view", "13", "--repo", "owner/repo", "--json", "title,state"]);
+    expect(buildCliArgv("gh", "issueView", { number: 13, repo: "owner/repo" })).toEqual([
+      "issue",
+      "view",
+      "13",
+      "--repo",
+      "owner/repo",
+      "--json",
+      "number,title,state,url,body,author,createdAt,updatedAt,labels,assignees,comments",
+    ]);
+    expect(buildCliArgv("gh", "issueView", { number: 13, json: ["title", "state"] })).toEqual([
+      "issue",
+      "view",
+      "13",
+      "--json",
+      "title,state",
+    ]);
     expect(
       buildCliArgv("gh", "issueList", { state: "open", limit: 5, repo: "owner/repo" }),
-    ).toEqual(["issue", "list", "--repo", "owner/repo", "--state", "open", "--limit", "5"]);
-    expect(buildCliArgv("gh", "prView", { number: 7 })).toEqual(["pr", "view", "7"]);
+    ).toEqual([
+      "issue",
+      "list",
+      "--repo",
+      "owner/repo",
+      "--state",
+      "open",
+      "--limit",
+      "5",
+      "--json",
+      "number,title,state,url,author,createdAt,updatedAt,labels,assignees,comments",
+    ]);
+    expect(buildCliArgv("gh", "prView", { number: 7 })).toEqual([
+      "pr",
+      "view",
+      "7",
+      "--json",
+      "number,title,state,url,body,author,createdAt,updatedAt,labels,assignees,comments,headRefName,baseRefName,isDraft,mergeable",
+    ]);
     expect(buildCliArgv("gh", "prList", { state: "all" })).toEqual([
       "pr",
       "list",
       "--state",
       "all",
+      "--json",
+      "number,title,state,url,author,createdAt,updatedAt,labels,assignees,comments,headRefName,baseRefName,isDraft",
     ]);
     expect(
       buildCliArgv("rg", "search", {
@@ -253,6 +298,36 @@ describe("cli command capabilities", () => {
     const stderr = String((result.result as { stderr: string }).stderr);
     expect(stderr.length).toBeLessThan(53 * 1024);
     expect(stderr).toContain("[Output truncated");
+  });
+
+  test("host commands receive authentication-related environment", async () => {
+    const cwd = tempProject();
+    writeFileSync(
+      join(cwd, "status"),
+      "process.stdout.write(JSON.stringify({ HOME: process.env.HOME, GH_TOKEN: process.env.GH_TOKEN }));\n",
+    );
+    const previousToken = process.env.GH_TOKEN;
+    process.env.GH_TOKEN = "test-token";
+    try {
+      const result = await new QuickJsExecutor({ timeout: 10_000 }).execute(
+        "return await cli.git.status({});",
+        {
+          cli: createCliBindings(
+            { git: { backend: "host", command: process.execPath, operations: ["status"] } },
+            cwd,
+          ),
+        },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(JSON.parse(String((result.result as { stdout: string }).stdout))).toMatchObject({
+        HOME: process.env.HOME,
+        GH_TOKEN: "test-token",
+      });
+    } finally {
+      if (previousToken === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = previousToken;
+    }
   });
 
   test("host command non-zero exits are returned without throwing", async () => {

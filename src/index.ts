@@ -24,15 +24,21 @@ import { initShell } from "./shell.js";
 export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Configuration ---
 
+  pi.registerFlag("codemode", {
+    description: "Enable code mode (default: normal tools)",
+    type: "boolean",
+    default: false,
+  });
+
   pi.registerFlag("no-codemode", {
-    description: "Disable code mode (use normal tools)",
+    description: "Deprecated no-op: codemode is disabled by default",
     type: "boolean",
     default: false,
   });
 
   // --- State ---
 
-  let enabled = true;
+  let enabled = false;
   let originalTools: string[] = [];
   let mcpClient: McpClient | undefined;
   let mcpServers: McpServerInfo[] = [];
@@ -105,13 +111,6 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Session lifecycle ---
 
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
-    const noCodemode = pi.getFlag("no-codemode") as boolean;
-    if (noCodemode) {
-      enabled = false;
-      ctx.ui.notify("Codemode disabled via --no-codemode", "info");
-      return;
-    }
-
     // Store original tool set for toggling
     originalTools = pi.getActiveTools();
 
@@ -120,7 +119,14 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       name: t.name,
       description: t.description,
     }));
-    buildSearchIndex(piTools, mcpServers);
+    buildSearchIndex(piTools, mcpServers, config.cli);
+
+    const startEnabled = pi.getFlag("codemode") as boolean;
+    if (!startEnabled) {
+      enabled = false;
+      ctx.ui.notify("Codemode disabled by default — use /codemode to enable", "info");
+      return;
+    }
 
     // Activate codemode: only execute_tools visible to LLM
     activateCodemode();

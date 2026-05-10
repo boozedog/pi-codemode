@@ -1,0 +1,10 @@
+{
+  "cli": {
+    "git": { "backend": "host", "operations": ["status", "branch"] },
+    "gh": { "backend": "host", "operations": ["issueView", "issueList", "prView", "prList"] },
+    "rg": { "backend": "host", "operations": ["search"] },
+    "find": { "backend": "just-bash", "operations": ["files"] },
+    "grep": { "backend": "just-bash", "operations": ["search"] },
+    "ls": { "backend": "just-bash", "operations": ["list"] }
+  }
+}

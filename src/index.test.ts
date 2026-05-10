@@ -86,25 +86,9 @@ describe("codemodeExtension", () => {
     expect(initShell).toHaveBeenCalledWith(expect.objectContaining({ projectRoot: process.cwd() }));
   });
 
-  test("session_start enables codemode unless disabled by flag", async () => {
+  test("session_start leaves codemode off by default and native prompt guidance is used", async () => {
     const { default: codemodeExtension } = await import("./index.js");
     const { pi, handlers, ctx } = createPiMock();
-    codemodeExtension(pi as never);
-
-    await handlers.get("session_start")?.({}, ctx);
-
-    expect(pi.getActiveTools).toHaveBeenCalled();
-    expect(pi.setActiveTools).toHaveBeenCalledWith(["execute_tools"]);
-    expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "Codemode enabled — TypeScript tool execution active",
-      "info",
-    );
-  });
-
-  test("no-codemode flag skips activation and native prompt guidance is used", async () => {
-    const { default: codemodeExtension } = await import("./index.js");
-    const { pi, handlers, ctx } = createPiMock();
-    pi.getFlag.mockReturnValue(true);
     codemodeExtension(pi as never);
 
     await handlers.get("session_start")?.({}, ctx);
@@ -112,13 +96,32 @@ describe("codemodeExtension", () => {
       systemPrompt: string;
     };
 
+    expect(pi.getActiveTools).toHaveBeenCalled();
     expect(pi.setActiveTools).not.toHaveBeenCalled();
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode disabled via --no-codemode", "info");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Codemode disabled by default — use /codemode to enable",
+      "info",
+    );
     expect(prompt.systemPrompt).toContain("## Native Tool Guidance");
     expect(prompt.systemPrompt).not.toContain("## Code Mode");
   });
 
-  test("/codemode toggles active tools off and on", async () => {
+  test("codemode flag enables activation on session_start", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, ctx } = createPiMock();
+    pi.getFlag.mockImplementation((name?: string) => name === "codemode");
+    codemodeExtension(pi as never);
+
+    await handlers.get("session_start")?.({}, ctx);
+
+    expect(pi.setActiveTools).toHaveBeenCalledWith(["execute_tools"]);
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "Codemode enabled — TypeScript tool execution active",
+      "info",
+    );
+  });
+
+  test("/codemode toggles active tools on and off", async () => {
     const { default: codemodeExtension } = await import("./index.js");
     const { pi, handlers, commands, ctx } = createPiMock();
     codemodeExtension(pi as never);
@@ -129,7 +132,6 @@ describe("codemodeExtension", () => {
 
     expect(pi.setActiveTools).toHaveBeenNthCalledWith(1, ["execute_tools"]);
     expect(pi.setActiveTools).toHaveBeenNthCalledWith(2, ["read", "write"]);
-    expect(pi.setActiveTools).toHaveBeenNthCalledWith(3, ["execute_tools"]);
   });
 
   test("session_shutdown closes MCP client", async () => {

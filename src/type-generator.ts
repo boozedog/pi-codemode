@@ -249,11 +249,11 @@ function cliOperationSignature(tool: string, operation: string): string {
       issueView:
         "issueView(args: { number: number; repo?: string; json?: string[] }): Promise<CommandResult>;",
       issueList:
-        'issueList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number }): Promise<CommandResult>;',
+        'issueList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number; json?: string[] }): Promise<CommandResult>;',
       prView:
         "prView(args: { number: number; repo?: string; json?: string[] }): Promise<CommandResult>;",
       prList:
-        'prList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number }): Promise<CommandResult>;',
+        'prList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number; json?: string[] }): Promise<CommandResult>;',
     },
     rg: {
       search:

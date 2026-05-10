@@ -4,12 +4,12 @@ Pi Codemode is a Pi extension that replaces many small tool calls with one typed
 
 ## Quickstart
 
-Install the package in Pi as an extension package, then start Pi in a project as usual. Codemode enables automatically and limits the active model-visible tool set to `execute_tools`.
+Install the package in Pi as an extension package, then start Pi in a project as usual. Codemode is disabled by default, so Pi starts with its normal tools. Use `/codemode` during a session, or start Pi with `--codemode`, to limit the active model-visible tool set to `execute_tools`.
 
 Useful controls:
 
 - `/codemode` toggles codemode on or off during a session.
-- `--no-codemode` starts Pi with normal tools instead of `execute_tools`.
+- `--codemode` starts Pi directly in codemode.
 
 ## The `execute_tools` shape
 
@@ -131,7 +131,7 @@ Codemode loads JSON config from:
 1. `~/.pi/agent/codemode.json`
 2. `$PROJECT/.pi/codemode.json`
 
-Project config overrides global config.
+Project config overrides global config. See `examples/codemode.json` for a starter configuration with typed `git`, `gh`, `rg`, `find`, `grep`, and `ls` capabilities.
 
 Default config:
 

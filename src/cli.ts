@@ -16,6 +16,64 @@ interface OperationDefinition {
   toArgv: OperationHandler;
 }
 
+const DEFAULT_GH_ISSUE_VIEW_JSON = [
+  "number",
+  "title",
+  "state",
+  "url",
+  "body",
+  "author",
+  "createdAt",
+  "updatedAt",
+  "labels",
+  "assignees",
+  "comments",
+];
+const DEFAULT_GH_ISSUE_LIST_JSON = [
+  "number",
+  "title",
+  "state",
+  "url",
+  "author",
+  "createdAt",
+  "updatedAt",
+  "labels",
+  "assignees",
+  "comments",
+];
+const DEFAULT_GH_PR_VIEW_JSON = [
+  "number",
+  "title",
+  "state",
+  "url",
+  "body",
+  "author",
+  "createdAt",
+  "updatedAt",
+  "labels",
+  "assignees",
+  "comments",
+  "headRefName",
+  "baseRefName",
+  "isDraft",
+  "mergeable",
+];
+const DEFAULT_GH_PR_LIST_JSON = [
+  "number",
+  "title",
+  "state",
+  "url",
+  "author",
+  "createdAt",
+  "updatedAt",
+  "labels",
+  "assignees",
+  "comments",
+  "headRefName",
+  "baseRefName",
+  "isDraft",
+];
+
 const OPERATIONS: Record<string, Record<string, OperationDefinition>> = {
   git: {
     status: {
@@ -39,12 +97,19 @@ const OPERATIONS: Record<string, Record<string, OperationDefinition>> = {
         "view",
         requiredNumber(args, "number"),
         ...repo(args),
-        ...json(args),
+        ...json(args, DEFAULT_GH_ISSUE_VIEW_JSON),
       ],
     },
     issueList: {
       effect: "external",
-      toArgv: (args) => ["issue", "list", ...repo(args), ...state(args), ...limit(args)],
+      toArgv: (args) => [
+        "issue",
+        "list",
+        ...repo(args),
+        ...state(args),
+        ...limit(args),
+        ...json(args, DEFAULT_GH_ISSUE_LIST_JSON),
+      ],
     },
     prView: {
       effect: "external",
@@ -53,12 +118,19 @@ const OPERATIONS: Record<string, Record<string, OperationDefinition>> = {
         "view",
         requiredNumber(args, "number"),
         ...repo(args),
-        ...json(args),
+        ...json(args, DEFAULT_GH_PR_VIEW_JSON),
       ],
     },
     prList: {
       effect: "external",
-      toArgv: (args) => ["pr", "list", ...repo(args), ...state(args), ...limit(args)],
+      toArgv: (args) => [
+        "pr",
+        "list",
+        ...repo(args),
+        ...state(args),
+        ...limit(args),
+        ...json(args, DEFAULT_GH_PR_LIST_JSON),
+      ],
     },
   },
   rg: {
@@ -217,7 +289,7 @@ function executeHost(
   signal?: AbortSignal,
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env: { PATH: process.env.PATH ?? "" }, signal });
+    const child = spawn(command, args, { cwd, env: hostCommandEnv(), signal });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
@@ -249,6 +321,17 @@ function executeHost(
       });
     });
   });
+}
+
+function hostCommandEnv(): NodeJS.ProcessEnv {
+  return {
+    PATH: process.env.PATH ?? "",
+    HOME: process.env.HOME,
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    GH_TOKEN: process.env.GH_TOKEN,
+    GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+    GITHUB_HOST: process.env.GITHUB_HOST,
+  };
 }
 
 function quoteCommand(parts: string[]): string {
@@ -302,9 +385,9 @@ function repo(args: Record<string, unknown>): string[] {
   if (typeof args.repo !== "string") throw new Error("repo must be a string");
   return ["--repo", args.repo];
 }
-function json(args: Record<string, unknown>): string[] {
-  if (args.json === undefined) return [];
-  const values = stringArray(args.json, "json");
+function json(args: Record<string, unknown>, defaults: string[] = []): string[] {
+  if (args.json === undefined && defaults.length === 0) return [];
+  const values = args.json === undefined ? defaults : stringArray(args.json, "json");
   if (values.length === 0 || values.some((v) => v.length === 0)) {
     throw new Error("json must be a non-empty array of strings");
   }
