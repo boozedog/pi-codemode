@@ -1,9 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
-
-vi.mock("@cloudflare/codemode", () => ({
-  generateTypesFromJsonSchema: () => "",
-  sanitizeToolName: (name: string) => name.replace(/[^A-Za-z0-9_$]/g, "_"),
-}));
+import { describe, expect, test } from "vitest";
 import { createToolBindings } from "./tool-bindings.js";
 import type { McpServerInfo } from "./search.js";
 

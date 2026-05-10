@@ -1,5 +1,5 @@
 {
-  "name": "@mariozechner/pi-codemode",
+  "name": "@boozedog/pi-codemode",
   "version": "0.1.0",
   "description": "Pi Codemode plugin - TypeScript code execution with sandboxed tools, just-bash shell, and MCP integration",
   "keywords": [
@@ -36,13 +36,14 @@
     "check": "npm run format:check && npm run lint && npm run build && npm test"
   },
   "dependencies": {
-    "@cloudflare/codemode": "0.3.4",
     "just-bash": "^2.14.4",
     "minisearch": "^7.2.0",
     "pi-mcp-adapter": "^2.5.4",
     "quickjs-emscripten": "^0.32.0"
   },
   "devDependencies": {
+    "@mariozechner/pi-tui": "^0.73.1",
+    "@types/json-schema": "^7.0.15",
     "@types/node": "^22.19.17",
     "oxfmt": "^0.48.0",
     "oxlint": "^1.63.0",
@@ -52,6 +53,7 @@
   "peerDependencies": {
     "@mariozechner/pi-agent-core": "*",
     "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
     "@sinclair/typebox": "*"
   },
   "pi": {

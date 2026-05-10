@@ -14,7 +14,41 @@ vi.mock("@sinclair/typebox", () => ({
   },
 }));
 
+vi.mock("@mariozechner/pi-tui", () => ({
+  Text: class Text {
+    constructor(public text: string) {}
+    setText(text: string) {
+      this.text = text;
+    }
+    render() {
+      return [this.text];
+    }
+  },
+}));
+
 const { createExecuteTool } = await import("./execute-tool.js");
+
+interface RenderedComponent {
+  render(width: number): string[];
+}
+
+interface Theme {
+  fg(color: string, text: string): string;
+  error(text: string): string;
+  success(text: string): string;
+  warning(text: string): string;
+  bold(text: string): string;
+}
+
+function createTheme(): Theme {
+  return {
+    fg: (_color, text) => text,
+    error: (text) => text,
+    success: (text) => text,
+    warning: (text) => text,
+    bold: (text) => text,
+  };
+}
 
 const bindings = {
   read: async () => "",
@@ -30,6 +64,35 @@ const bindings = {
 } satisfies ToolBindings;
 
 describe("createExecuteTool executor selection", () => {
+  test("renders tool call and result as TUI components", () => {
+    const tool = createExecuteTool({
+      typeDefs: "",
+      bindings,
+      timeout: 1_000,
+      executor: { kind: "quickjs" },
+    }) as {
+      renderCall: (args: { code: string }, theme: Theme, context: unknown) => RenderedComponent;
+      renderResult: (
+        result: unknown,
+        options: { expanded: boolean; isPartial: boolean },
+        theme: Theme,
+        context: unknown,
+      ) => RenderedComponent;
+    };
+    const theme = createTheme();
+
+    const call = tool.renderCall({ code: "return 1;" }, theme, {});
+    const result = tool.renderResult(
+      { content: [{ type: "text", text: "ok" }], details: { elapsedMs: 12 } },
+      { expanded: true, isPartial: false },
+      theme,
+      {},
+    );
+
+    expect(call.render(80).join("\n")).toContain("return 1;");
+    expect(result.render(80).join("\n")).toContain("ok");
+  });
+
   test("uses the configured executor", async () => {
     const tool = createExecuteTool({
       typeDefs: "",

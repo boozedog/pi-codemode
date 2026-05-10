@@ -6,8 +6,7 @@
 // 2. MCP server types with nested namespaces
 // 3. System prompt summary (compact, not full types)
 
-import { generateTypesFromJsonSchema, sanitizeToolName } from "@cloudflare/codemode";
-import type { JSONSchema7 } from "json-schema";
+import type { JSONSchema7, JSONSchema7Definition } from "json-schema";
 import type { McpServerInfo } from "./search.js";
 import { generateShellTypeDefs } from "./shell.js";
 
@@ -163,18 +162,76 @@ const builtinToolDescriptors: Record<string, { description?: string; inputSchema
   },
 };
 
+function sanitizeToolName(name: string): string {
+  const sanitized = name.replace(/[^A-Za-z0-9_$]/g, "_");
+  return /^[A-Za-z_$]/.test(sanitized) ? sanitized : `_${sanitized}`;
+}
+
+function generateTypesFromJsonSchema(
+  descriptors: Record<string, { description?: string; inputSchema: JSONSchema7 }>,
+): string {
+  return Object.entries(descriptors)
+    .map(([name, descriptor]) => {
+      const schema = descriptor.inputSchema;
+      const argsType = schemaToType(schema, schema.required ?? []);
+      const doc = descriptor.description
+        ? `/** ${descriptor.description.replace(/\*\//g, "* /").replace(/\n/g, " ")} */\n`
+        : "";
+      return `${doc}${sanitizeToolName(name)}(args: ${argsType})`;
+    })
+    .join("\n");
+}
+
+function schemaToType(schema: JSONSchema7Definition | undefined, required: string[] = []): string {
+  if (!schema || typeof schema === "boolean") return "any";
+
+  if (schema.enum && schema.enum.length > 0) {
+    return schema.enum.map((value) => JSON.stringify(value)).join(" | ");
+  }
+
+  if (Array.isArray(schema.type)) {
+    return schema.type.map((type) => schemaToType({ ...schema, type }, required)).join(" | ");
+  }
+
+  switch (schema.type) {
+    case "string":
+      return "string";
+    case "number":
+    case "integer":
+      return "number";
+    case "boolean":
+      return "boolean";
+    case "array":
+      return `Array<${schemaToType(schema.items as JSONSchema7Definition | undefined)}>`;
+    case "object": {
+      const properties = schema.properties ?? {};
+      const entries = Object.entries(properties);
+      if (entries.length === 0) return "Record<string, unknown>";
+      const fields = entries.map(([propName, propSchema]) => {
+        const optional = required.includes(propName) ? "" : "?";
+        const key = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(propName)
+          ? propName
+          : JSON.stringify(propName);
+        return `${key}${optional}: ${schemaToType(propSchema)};`;
+      });
+      return `{ ${fields.join(" ")} }`;
+    }
+    default:
+      return "any";
+  }
+}
+
 /**
- * Generate the type definition string for built-in tools using Cloudflare's generator.
+ * Generate the type definition string for built-in tools.
  */
 export function generateBuiltinTypeDefs(): string {
   // Generate types from JSON Schema descriptors
-  const fileTools = generateTypesFromJsonSchema(fileToolDescriptors);
+  void fileToolDescriptors;
   const generated = generateTypesFromJsonSchema(builtinToolDescriptors);
 
   // Wrap in the expected interface structure
   return `\
 /** Tool API available inside execute_tools code blocks. */
-${fileTools}
 
 declare function read(args: { path: string; offset?: number; limit?: number }): Promise<string>;
 declare function write(args: { path: string; content: string }): Promise<void>;
@@ -195,7 +252,12 @@ interface McpServerNamespaces {}
 interface CodemodeTools {
 ${generated
   .split("\n")
-  .map((line) => (line ? "  " + line : line))
+  .map((line) => {
+    if (!line) return line;
+    const trimmed = line.trim();
+    if (trimmed.startsWith("/**")) return "  " + line;
+    return "  " + trimmed + ": Promise<string>;";
+  })
   .join("\n")}
 }
 

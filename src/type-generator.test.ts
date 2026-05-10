@@ -1,12 +1,6 @@
-import { beforeAll, describe, expect, test, vi } from "vitest";
+import { beforeAll, describe, expect, test } from "vitest";
 import { initTypeChecker, typeCheck } from "./type-checker.js";
-
-vi.mock("@cloudflare/codemode", () => ({
-  sanitizeToolName: (name: string) => name.replace(/[^A-Za-z0-9_$]/g, "_"),
-  generateTypesFromJsonSchema: () => "",
-}));
-
-const { generateBuiltinTypeDefs } = await import("./type-generator.js");
+import { generateBuiltinTypeDefs, generateMcpServerTypeDefs } from "./type-generator.js";
 
 beforeAll(() => {
   initTypeChecker();
@@ -36,5 +30,44 @@ await edit({
     ).errors;
 
     expect(errors).not.toEqual([]);
+  });
+
+  test("generates usable codemode built-in tool signatures without Cloudflare runtime imports", () => {
+    const typeDefs = generateBuiltinTypeDefs();
+
+    expect(typeDefs).toContain("search_tools(args: {");
+    expect(typeDefs).toContain("query: string;");
+    expect(typeDefs).toContain("progress(args: {");
+    expect(typeDefs).toContain("message: string;");
+  });
+});
+
+describe("MCP server type definitions", () => {
+  test("sanitizes tool and namespace names and maps JSON schema properties", () => {
+    const typeDefs = generateMcpServerTypeDefs([
+      {
+        serverName: "GitHub",
+        namespace: "github-api",
+        tools: [
+          {
+            name: "search/issues",
+            description: "Search issues",
+            inputSchema: {
+              type: "object",
+              properties: {
+                q: { type: "string" },
+                limit: { type: "integer" },
+              },
+              required: ["q"],
+            },
+          },
+        ],
+      },
+    ]);
+
+    expect(typeDefs).toContain("github_api: McpGithubApiTools;");
+    expect(typeDefs).toContain("search_issues(args: {");
+    expect(typeDefs).toContain("q: string;");
+    expect(typeDefs).toContain("limit?: number;");
   });
 });

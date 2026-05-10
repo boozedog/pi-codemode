@@ -5,6 +5,7 @@
 
 import { Type } from "@sinclair/typebox";
 import type { ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { Text } from "@mariozechner/pi-tui";
 import { typeCheck, type TypeCheckError } from "./type-checker.js";
 import type { ToolBindings } from "./tool-bindings.js";
 import { createExecutor, type ExecutorFactoryOptions } from "./executor/index.js";
@@ -152,32 +153,42 @@ Return a value to include it in the result. Type errors are returned for correct
 
     renderCall(
       args: { code: string; strings?: Record<string, string> },
-      theme: { fg: (color: string, text: string) => string },
+      theme: { fg: (color: string, text: string) => string; bold: (text: string) => string },
+      _context: unknown,
     ) {
-      try {
-        // Simple text rendering without Pi TUI dependencies
-        let text = args.code.trim();
+      let text = theme.fg("toolTitle", theme.bold("execute_tools"));
+      const code = args.code?.trim() || "(empty code)";
+      const lines = code.split("\n");
+      text += theme.fg("dim", `  ${lines.length} line${lines.length === 1 ? "" : "s"}`);
 
-        // Show string constants if present
-        if (args.strings && Object.keys(args.strings).length > 0) {
-          const stringsSection = Object.entries(args.strings)
-            .map(([key, val]) => {
-              const preview = val.length > 200 ? val.slice(0, 200) + "..." : val;
-              return theme.fg("dim", `π.${key}`) + " = " + theme.fg("dim", JSON.stringify(preview));
-            })
-            .join("\n");
-          text = theme.fg("dim", "// String constants:") + "\n" + stringsSection + "\n\n" + text;
-        }
-
-        // Return plain text - Pi will handle rendering
-        return text;
-      } catch {
-        return String(args.code ?? "");
+      if (args.strings && Object.keys(args.strings).length > 0) {
+        text += theme.fg("dim", `, ${Object.keys(args.strings).length} string constant(s)`);
       }
+
+      text += "\n" + code;
+
+      if (args.strings && Object.keys(args.strings).length > 0) {
+        text += "\n" + theme.fg("dim", "\nString constants:");
+        for (const [key, value] of Object.entries(args.strings)) {
+          const preview = value.length > 120 ? value.slice(0, 120) + "..." : value;
+          text += "\n" + theme.fg("dim", `π.${key} = ${JSON.stringify(preview)}`);
+        }
+      }
+
+      return new Text(text, 0, 0);
     },
 
     renderResult(
-      result: any,
+      result: {
+        content?: Array<{ type: string; text?: string }>;
+        isError?: boolean;
+        details?: {
+          elapsedMs?: number;
+          errors?: TypeCheckError[];
+          logs?: string[];
+          progress?: unknown;
+        };
+      },
       options: { expanded: boolean; isPartial: boolean },
       theme: {
         fg: (color: string, text: string) => string;
@@ -185,49 +196,49 @@ Return a value to include it in the result. Type errors are returned for correct
         success: (text: string) => string;
         warning: (text: string) => string;
       },
+      _context: unknown,
     ) {
-      const { isPartial, expanded } = options;
-
-      if (isPartial) {
+      if (options.isPartial) {
         const msg = result.details?.progress
           ? (result.content?.[0]?.text ?? "Executing...")
           : "Executing...";
-        return theme.fg("warning", msg);
+        return new Text(theme.fg("warning", msg), 0, 0);
       }
 
-      const details = result.details ?? {};
-      const isError = result.isError;
-      const elapsed = details.elapsedMs
-        ? ` ${theme.fg("dim", `(${Math.round(details.elapsedMs)}ms)`)}`
+      const elapsed = result.details?.elapsedMs
+        ? ` ${theme.fg("dim", `(${Math.round(result.details.elapsedMs)}ms)`)}`
         : "";
 
-      if (isError) {
-        const errors = details.errors ?? [];
-        const firstError = errors[0]?.message ?? "Unknown error";
-        if (!expanded) {
-          return theme.fg("error", `✗ ${firstError}`) + elapsed;
+      if (result.isError) {
+        const errors = result.details?.errors ?? [];
+        const first = errors[0];
+        if (!options.expanded) {
+          return new Text(theme.error(`✗ ${first?.message ?? "Error"}`) + elapsed, 0, 0);
         }
-        const lines = errors
-          .map((e: any) => theme.fg("error", e.line > 0 ? `Line ${e.line}: ` : "") + e.message)
-          .join("\n");
-        return lines + elapsed;
+        const errorText =
+          errors.length > 0
+            ? errors
+                .map((error) => `${error.line > 0 ? `Line ${error.line}: ` : ""}${error.message}`)
+                .join("\n")
+            : (result.content?.[0]?.text ?? "Error");
+        return new Text(theme.error(errorText) + elapsed, 0, 0);
       }
 
-      // Success — trim to avoid leading/trailing blank lines
-      const text = (result.content?.[0]?.text ?? "(no output)").trim();
-      const lineCount = text.split("\n").length;
-
-      if (!expanded && lineCount > 5) {
-        const preview = text.split("\n").slice(0, 3).join("\n");
-        return (
-          theme.fg("success", "✓ ") +
-          preview +
-          theme.fg("dim", `\n... ${lineCount - 3} more lines`) +
-          elapsed
+      const content = (result.content?.[0]?.text ?? "(no output)").trim();
+      const lines = content.split("\n");
+      if (!options.expanded && lines.length > 6) {
+        const preview = lines.slice(0, 4).join("\n");
+        return new Text(
+          theme.success("✓ ") +
+            preview +
+            theme.fg("dim", `\n... ${lines.length - 4} more lines`) +
+            elapsed,
+          0,
+          0,
         );
       }
 
-      return theme.fg("success", "✓ ") + text + elapsed;
+      return new Text(theme.success("✓ ") + content + elapsed, 0, 0);
     },
   } as unknown as ToolDefinition;
 }
