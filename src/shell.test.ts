@@ -1,3 +1,6 @@
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test, beforeAll, beforeEach, afterEach } from "vitest";
 import {
   initShell,
@@ -74,6 +77,34 @@ describe("shell", () => {
       expect(result.stderr).toContain('Command "rm" is not in the allowed list');
     });
 
+    test("applies command allowlist after shell cwd prefix", async () => {
+      await initShell({
+        projectRoot,
+        allowedCommands: ["pwd"],
+      });
+      const shell = createShellFunction(projectRoot);
+
+      const result = await shell({ command: "pwd", cwd: "/workspace" });
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+    });
+
+    test("truncates large output and stores full stdout in /tmp", async () => {
+      await initShell({ projectRoot, maxOutputBytes: 8 });
+
+      const result = await executeJustBash(projectRoot, "printf abcdefghijklmnop");
+
+      expect(result.stdout).toContain("ijklmnop");
+      expect(result.stdout).toContain("Output truncated");
+      expect(result.stdoutFile).toMatch(/^\/tmp\/codemode-shell-output-/);
+
+      const saved = await executeJustBash(projectRoot, `cat ${result.stdoutFile}`, {
+        maxOutputBytes: 100,
+      });
+      expect(saved.stdout).toBe("abcdefghijklmnop");
+    });
+
     test("times out long-running commands", async () => {
       await initShell({ projectRoot });
 
@@ -96,12 +127,12 @@ describe("shell", () => {
     test("quotes string interpolations safely", async () => {
       await initShell({ projectRoot });
       const $ = createShellTag(projectRoot);
-      const unsafe = "world'; rm -rf /; echo 'pwned";
+      const unsafe = "world'; echo pwned; echo 'still data";
 
-      // The command is built with proper escaping
-      // We can't easily verify the escaping without mocking just-bash,
-      // but we can verify it doesn't throw
-      await expect($`echo ${unsafe}`).resolves.toBeDefined();
+      const result = await $`printf %s ${unsafe}`;
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe(unsafe);
     });
   });
 
@@ -131,6 +162,29 @@ describe("shell", () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("Invalid cwd");
+    });
+
+    test("rejects relative cwd traversal outside workspace", async () => {
+      await initShell({ projectRoot });
+      const shell = createShellFunction(projectRoot);
+
+      const result = await shell({ command: "ls", cwd: "../../../etc" });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Invalid cwd");
+    });
+
+    test("keeps workspace symlinks scoped by ReadWriteFs", async () => {
+      const scopedRoot = mkdtempSync(join(tmpdir(), "codemode-shell-scope-"));
+      const outsideRoot = mkdtempSync(join(tmpdir(), "codemode-shell-outside-"));
+      writeFileSync(join(outsideRoot, "secret.txt"), "host secret");
+      symlinkSync(join(outsideRoot, "secret.txt"), join(scopedRoot, "secret-link.txt"));
+      await initShell({ projectRoot: scopedRoot });
+
+      const result = await executeJustBash(scopedRoot, "cat secret-link.txt");
+
+      expect(result.stdout).not.toContain("host secret");
+      expect(result.exitCode).not.toBe(0);
     });
   });
 

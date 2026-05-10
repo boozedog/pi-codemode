@@ -20,17 +20,23 @@ export interface ShellOptions {
   deniedCommands?: string[];
   /** Max command execution time in ms */
   timeoutMs?: number;
+  /** Max stdout/stderr bytes returned inline before storing full output in /tmp */
+  maxOutputBytes?: number;
 }
 
 export interface ShellResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  stdoutFile?: string;
+  stderrFile?: string;
 }
 
 interface ShellContext {
   bash: Bash;
+  fs: MountableFs;
   options: ShellOptions;
+  outputCounter: number;
 }
 
 // Global shell context per project
@@ -84,9 +90,12 @@ export async function initShell(options: ShellOptions): Promise<void> {
       TERM: "dumb",
       CI: "true",
     },
+    network: undefined,
+    python: false,
+    javascript: false,
   });
 
-  shellContexts.set(key, { bash, options });
+  shellContexts.set(key, { bash, fs, options, outputCounter: 0 });
 }
 
 /**
@@ -103,7 +112,7 @@ function getShellContext(projectRoot: string): ShellContext | null {
 export async function executeJustBash(
   projectRoot: string,
   command: string,
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; maxOutputBytes?: number } = {},
 ): Promise<ShellResult> {
   const ctx = getShellContext(projectRoot);
   if (!ctx) {
@@ -111,7 +120,7 @@ export async function executeJustBash(
   }
 
   // Check command allowlist/denylist
-  const cmd = command.trim().split(/\s+/)[0];
+  const cmd = getPolicyCommand(command);
   if (ctx.options.deniedCommands?.includes(cmd)) {
     return {
       stdout: "",
@@ -146,25 +155,16 @@ export async function executeJustBash(
       ),
     ]);
 
-    // Truncate large outputs
-    const maxOutput = 50 * 1024; // 50KB
-    let stdout = result.stdout ?? "";
-    let stderr = result.stderr ?? "";
-
-    if (stdout.length > maxOutput) {
-      stdout =
-        stdout.slice(-maxOutput) +
-        `\n[Output truncated, showing last ${Math.round(maxOutput / 1024)}KB]`;
-    }
-    if (stderr.length > maxOutput) {
-      stderr =
-        stderr.slice(-maxOutput) +
-        `\n[Output truncated, showing last ${Math.round(maxOutput / 1024)}KB]`;
-    }
+    const maxOutput = options.maxOutputBytes ?? ctx.options.maxOutputBytes ?? 50 * 1024;
+    const truncated = await truncateOutputs(
+      ctx,
+      result.stdout ?? "",
+      result.stderr ?? "",
+      maxOutput,
+    );
 
     return {
-      stdout,
-      stderr,
+      ...truncated,
       exitCode: result.exitCode ?? 0,
     };
   } catch (err) {
@@ -184,6 +184,52 @@ export async function executeJustBash(
  *
  * Interpolated values are automatically escaped/quoted for safety.
  */
+async function truncateOutputs(
+  ctx: ShellContext,
+  stdout: string,
+  stderr: string,
+  maxOutput: number,
+): Promise<Omit<ShellResult, "exitCode">> {
+  let truncatedStdout = stdout;
+  let truncatedStderr = stderr;
+  let stdoutFile: string | undefined;
+  let stderrFile: string | undefined;
+
+  if (stdout.length > maxOutput) {
+    stdoutFile = await writeFullOutput(ctx, stdout);
+    truncatedStdout =
+      stdout.slice(-maxOutput) +
+      `\n[Output truncated, showing last ${formatBytes(maxOutput)}. Full stdout: ${stdoutFile}]`;
+  }
+  if (stderr.length > maxOutput) {
+    stderrFile = await writeFullOutput(ctx, stderr);
+    truncatedStderr =
+      stderr.slice(-maxOutput) +
+      `\n[Output truncated, showing last ${formatBytes(maxOutput)}. Full stderr: ${stderrFile}]`;
+  }
+
+  return { stdout: truncatedStdout, stderr: truncatedStderr, stdoutFile, stderrFile };
+}
+
+async function writeFullOutput(ctx: ShellContext, content: string): Promise<string> {
+  ctx.outputCounter += 1;
+  const path = `/tmp/codemode-shell-output-${Date.now()}-${ctx.outputCounter}.txt`;
+  await ctx.fs.writeFile(path, content, "utf-8");
+  return path;
+}
+
+function formatBytes(bytes: number): string {
+  return bytes >= 1024 ? `${Math.round(bytes / 1024)}KB` : `${bytes} bytes`;
+}
+
+function getPolicyCommand(command: string): string {
+  const normalized = command.trim();
+  const afterCwd = normalized.match(/^cd\s+\S+\s+&&\s+(.+)$/)?.[1] ?? normalized;
+  const tokens = afterCwd.trim().split(/\s+/).filter(Boolean);
+  const commandToken = tokens.find((token) => !/^[_A-Za-z][_A-Za-z0-9]*=.*/.test(token));
+  return commandToken ?? "";
+}
+
 export function createShellTag(projectRoot: string) {
   return function (strings: TemplateStringsArray, ...values: unknown[]): Promise<ShellResult> {
     // Build command string with safe interpolation
@@ -221,8 +267,9 @@ export function createShellFunction(projectRoot: string) {
 
     // Handle cwd by prepending cd command
     if (options.cwd && options.cwd !== "/workspace") {
+      const rawCwd = options.cwd.startsWith("/") ? options.cwd : `/workspace/${options.cwd}`;
       // Normalize path by resolving . and .. segments (prevent path traversal)
-      const normalizedPath = options.cwd.replace(/\\/g, "/").replace(/\/+/g, "/");
+      const normalizedPath = rawCwd.replace(/\\/g, "/").replace(/\/+/g, "/");
       const parts = normalizedPath.split("/").filter((p) => p.length > 0);
       const resolved: string[] = [];
       for (const part of parts) {
