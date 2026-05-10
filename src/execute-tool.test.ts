@@ -79,4 +79,130 @@ describe("execute_tools integration", () => {
       rmSync(projectDir, { recursive: true, force: true });
     }
   });
+
+  test("executes QuickJS code against real file write and read bindings", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "codemode-execute-tool-"));
+    try {
+      const fileTools = createFileTools({ projectRoot: projectDir });
+      const tool = createExecuteTool({
+        typeDefs: `
+          declare function read(params: { path: string }): Promise<string>;
+          declare function write(params: { path: string; content: string }): Promise<void>;
+        `,
+        bindings: {
+          ...bindings,
+          read: async (params) => fileTools.read(params),
+          write: async (params) => fileTools.write(params),
+        },
+        timeout: 1_000,
+        executor: { kind: "quickjs" },
+      });
+
+      const result = await tool.execute(
+        "call-id",
+        {
+          code: `
+            await write({ path: "created.txt", content: "created from QuickJS" });
+            return await read({ path: "created.txt" });
+          `,
+        },
+        undefined,
+        () => undefined,
+        {} as never,
+      );
+
+      expect(result.isError).not.toBe(true);
+      expect(result.content[0].text).toBe("created from QuickJS");
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  test("executes QuickJS code against real file edit and read bindings", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "codemode-execute-tool-"));
+    try {
+      writeFileSync(join(projectDir, "edit-me.txt"), "hello world");
+      const fileTools = createFileTools({ projectRoot: projectDir });
+      const tool = createExecuteTool({
+        typeDefs: `
+          declare function read(params: { path: string }): Promise<string>;
+          declare function edit(params: {
+            path: string;
+            edits: Array<{ oldText: string; newText: string }>;
+          }): Promise<string>;
+        `,
+        bindings: {
+          ...bindings,
+          read: async (params) => fileTools.read(params),
+          edit: async (params) => fileTools.edit(params),
+        },
+        timeout: 1_000,
+        executor: { kind: "quickjs" },
+      });
+
+      const result = await tool.execute(
+        "call-id",
+        {
+          code: `
+            await edit({
+              path: "edit-me.txt",
+              edits: [{ oldText: "world", newText: "codemode" }],
+            });
+            return await read({ path: "edit-me.txt" });
+          `,
+        },
+        undefined,
+        () => undefined,
+        {} as never,
+      );
+
+      expect(result.isError).not.toBe(true);
+      expect(result.content[0].text).toBe("hello codemode");
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  test("returns runtime error when real file edit binding rejects", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "codemode-execute-tool-"));
+    try {
+      writeFileSync(join(projectDir, "edit-me.txt"), "hello world");
+      const fileTools = createFileTools({ projectRoot: projectDir });
+      const tool = createExecuteTool({
+        typeDefs: `
+          declare function edit(params: {
+            path: string;
+            edits: Array<{ oldText: string; newText: string }>;
+          }): Promise<string>;
+        `,
+        bindings: {
+          ...bindings,
+          edit: async (params) => fileTools.edit(params),
+        },
+        timeout: 1_000,
+        executor: { kind: "quickjs" },
+      });
+
+      const result = await tool.execute(
+        "call-id",
+        {
+          code: `
+            await edit({
+              path: "edit-me.txt",
+              edits: [{ oldText: "missing", newText: "codemode" }],
+            });
+          `,
+        },
+        undefined,
+        () => undefined,
+        {} as never,
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("oldText not found");
+      expect(result.content[0].text).toContain("missing");
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
 });
