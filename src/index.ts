@@ -197,8 +197,9 @@ ${builtinTypeDefs}
 ${mcpSummary ? "\n" + mcpSummary + "\n" : ""}
 ### How to use
 
-Call \`execute_tools\` with a TypeScript code body. Your code runs with the \`codemode.*\` API
-available. Use \`print()\` to output intermediate results and \`return\` for the final value.
+Call \`execute_tools\` with a TypeScript code body. Use top-level \`read\`, \`write\`, and
+\`edit\` for files; use \`codemode.*\` for discovery and MCP tools. Use \`print()\` to output
+intermediate results and \`return\` for the final value.
 
 #### Parallel execution — use Promise.all for independent calls
 
@@ -207,8 +208,8 @@ run them concurrently. This is significantly faster than sequential \`await\`s.
 
 \`\`\`typescript
 const [pkg, readme] = await Promise.all([
-  codemode.read({ path: "package.json" }),
-  codemode.read({ path: "README.md" }),
+  read({ path: "package.json" }),
+  read({ path: "README.md" }),
 ]);
 return { deps: Object.keys(JSON.parse(pkg).dependencies || {}) };
 \`\`\`
@@ -235,7 +236,7 @@ const files = result.stdout.split('\\n').filter(f => f.trim());
 
 // Step 2: Read all found files in parallel
 const contents = await Promise.all(
-  files.map(f => codemode.read({ path: f }))
+  files.map(f => read({ path: f }))
 );
 
 // Step 3: Extract and aggregate
@@ -278,14 +279,25 @@ When writing or editing files with content that's hard to quote in JavaScript (b
 parameter instead of embedding it in your code. The strings are available as \`π.keyName\`.
 
 \`\`\`typescript
-await codemode.write({ path: "run.sh", content: π.script });
-await codemode.edit({ path: "config.ts", oldText: π.oldConfig, newText: π.newConfig });
+await write({ path: "run.sh", content: π.script });
+await edit({
+  path: "config.ts",
+  edits: [{ oldText: π.oldConfig, newText: π.newConfig }],
+});
 \`\`\`
 
 **When to use \`strings\`:** File content with backticks, template literals, shell scripts,
 code that contains string literals, or any text where JS quoting would be awkward.
 
 **When NOT needed:** Simple strings, paths, short text without special characters.
+
+### Edit guidance
+- \`oldText\` must be an exact literal substring from the original file
+- Each \`oldText\` must match exactly once
+- Edits are matched against the original file, not sequentially
+- Edits must not overlap
+- If two changes are close together, merge them into one larger edit
+- Use enough surrounding context to make \`oldText\` unique, but avoid huge unrelated blocks
 
 ### Important
 - **Parallelize independent calls** — use \`Promise.all\` whenever calls don't depend on each other

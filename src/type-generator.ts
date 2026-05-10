@@ -11,8 +11,8 @@ import type { JSONSchema7 } from "json-schema";
 import type { McpServerInfo } from "./search.js";
 import { generateShellTypeDefs } from "./shell.js";
 
-// Built-in tool descriptors using JSON Schema (for Cloudflare type generation)
-const builtinToolDescriptors: Record<string, { description?: string; inputSchema: JSONSchema7 }> = {
+// Top-level file tool descriptors mirror Pi's native tool names and schemas.
+const fileToolDescriptors: Record<string, { description?: string; inputSchema: JSONSchema7 }> = {
   read: {
     description:
       "Read a file and return its content as a string. Each line is prefixed with line number and hash for reference. Default limit: 2000 lines or 50KB.",
@@ -55,7 +55,7 @@ const builtinToolDescriptors: Record<string, { description?: string; inputSchema
   },
   edit: {
     description:
-      "Edit a file by finding and replacing exact text. The oldText must match exactly (including whitespace). Returns a success message. Throws if text not found or ambiguous.",
+      "Edit a file using Pi's exact replacement semantics. Each oldText must match exactly one unique, non-overlapping region in the original file. Nearby edits should be merged into one edit.",
     inputSchema: {
       type: "object",
       properties: {
@@ -63,18 +63,33 @@ const builtinToolDescriptors: Record<string, { description?: string; inputSchema
           type: "string",
           description: "Path to the file to edit (relative or absolute)",
         },
-        oldText: {
-          type: "string",
-          description: "Exact text to find and replace (must match exactly)",
-        },
-        newText: {
-          type: "string",
-          description: "New text to replace the old text with",
+        edits: {
+          type: "array",
+          description:
+            "Exact text replacements. Each oldText must match exactly once in the original file; edits must not overlap.",
+          items: {
+            type: "object",
+            properties: {
+              oldText: {
+                type: "string",
+                description: "Exact literal original text to replace; must match exactly once",
+              },
+              newText: {
+                type: "string",
+                description: "Replacement text",
+              },
+            },
+            required: ["oldText", "newText"],
+          },
         },
       },
-      required: ["path", "oldText", "newText"],
+      required: ["path", "edits"],
     },
   },
+};
+
+// Built-in codemode namespace descriptors using JSON Schema (for Cloudflare type generation)
+const builtinToolDescriptors: Record<string, { description?: string; inputSchema: JSONSchema7 }> = {
   search_tools: {
     description:
       "Search for tools by name or description. Returns matching tool names, descriptions, and call signatures.",
@@ -125,12 +140,29 @@ const builtinToolDescriptors: Record<string, { description?: string; inputSchema
  */
 export function generateBuiltinTypeDefs(): string {
   // Generate types from JSON Schema descriptors
+  const fileTools = generateTypesFromJsonSchema(fileToolDescriptors);
   const generated = generateTypesFromJsonSchema(builtinToolDescriptors);
 
   // Wrap in the expected interface structure
   return `\
 /** Tool API available inside execute_tools code blocks. */
+${fileTools}
+
+declare function read(args: { path: string; offset?: number; limit?: number }): Promise<string>;
+declare function write(args: { path: string; content: string }): Promise<void>;
+declare function edit(args: {
+  path: string;
+  edits: Array<{
+    /** Exact literal original text. Must match exactly once in the original file. */
+    oldText: string;
+    /** Replacement text. */
+    newText: string;
+  }>;
+}): Promise<string>;
+
 declare const codemode: CodemodeTools & McpServerNamespaces;
+
+interface McpServerNamespaces {}
 
 interface CodemodeTools {
 ${generated

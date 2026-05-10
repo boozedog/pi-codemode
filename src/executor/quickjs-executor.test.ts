@@ -18,6 +18,55 @@ describe("QuickJsExecutor", () => {
     expect(result.logs).toEqual(["hello quickjs"]);
   });
 
+  test("exposes top-level file tool host calls", async () => {
+    const calls: unknown[] = [];
+    const executor = new QuickJsExecutor({ timeout: 5_000 });
+    const result = await executor.execute(
+      `
+			const text = await read({ path: "a.txt" });
+			await write({ path: "b.txt", content: text });
+			await edit({ path: "a.txt", edits: [{ oldText: "a", newText: "b" }] });
+			return codemode.callsDone({});
+		`,
+      [
+        {
+          name: "codemode",
+          fns: {
+            read: async (args: unknown) => {
+              calls.push(["read", args]);
+              return "contents";
+            },
+            write: async (args: unknown) => {
+              calls.push(["write", args]);
+            },
+            edit: async (args: unknown) => {
+              calls.push(["edit", args]);
+              return "edited";
+            },
+            callsDone: async () => calls,
+          },
+        },
+      ],
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toEqual([
+      ["read", { path: "a.txt" }],
+      ["write", { path: "b.txt", content: "contents" }],
+      ["edit", { path: "a.txt", edits: [{ oldText: "a", newText: "b" }] }],
+    ]);
+  });
+
+  test("does not expose file tools through codemode namespace", async () => {
+    const executor = new QuickJsExecutor({ timeout: 5_000 });
+    const result = await executor.execute(`return typeof codemode.edit;`, [
+      { name: "codemode", fns: { edit: async () => "edited" } },
+    ]);
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toBe("undefined");
+  });
+
   test("resolves concurrent async host calls", async () => {
     const executor = new QuickJsExecutor({ timeout: 5_000 });
     const result = await executor.execute(

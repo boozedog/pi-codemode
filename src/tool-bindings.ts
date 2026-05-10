@@ -14,7 +14,10 @@ import type { McpServerInfo } from "./search.js";
 export interface ToolBindings {
   read(params: { path: string; offset?: number; limit?: number }): Promise<string>;
   write(params: { path: string; content: string }): Promise<void>;
-  edit(params: { path: string; oldText: string; newText: string }): Promise<string>;
+  edit(params: {
+    path: string;
+    edits: Array<{ oldText: string; newText: string }>;
+  }): Promise<string>;
   search_tools(params: { query: string }): Promise<string>;
   describe_tools(params: { namespace: string; tool?: string }): Promise<string>;
   $(params: {
@@ -198,21 +201,6 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
  */
 function describeBuiltinTools(toolName?: string): string {
   const builtins: Record<string, { description: string; params: string }> = {
-    read: {
-      description:
-        "Read a file and return its content as a string. Each line is prefixed with line number and hash for reference.",
-      params: "{ path: string; offset?: number; limit?: number }",
-    },
-    write: {
-      description:
-        "Write content to a file. Creates parent directories automatically. Overwrites the file if it already exists.",
-      params: "{ path: string; content: string }",
-    },
-    edit: {
-      description:
-        "Edit a file by finding and replacing exact text. The oldText must match exactly (including whitespace).",
-      params: "{ path: string; oldText: string; newText: string }",
-    },
     search_tools: {
       description:
         "Search for tools by name or description. Returns matching tool names, descriptions, and call signatures.",
@@ -231,7 +219,7 @@ function describeBuiltinTools(toolName?: string): string {
 
   if (!toolName) {
     // List all built-ins
-    let text = "codemode (built-in tools):\n\n";
+    let text = "codemode (discovery/progress tools; file tools are top-level read/write/edit):\n\n";
     for (const [name, info] of Object.entries(builtins)) {
       text += `  ${name}(${info.params})\n`;
       text += `    ${info.description}\n\n`;

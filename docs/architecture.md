@@ -13,8 +13,8 @@ The generated API is `codemode.*`:
 
 ```ts
 const [pkg, readme] = await Promise.all([
-  codemode.read({ path: "package.json" }),
-  codemode.read({ path: "README.md" }),
+  read({ path: "package.json" }),
+  read({ path: "README.md" }),
 ]);
 
 const todos = await $`rg TODO src`;

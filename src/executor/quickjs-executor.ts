@@ -112,6 +112,7 @@ export class QuickJsExecutor implements CodeExecutor {
 				globalThis.codemode = new Proxy({}, {
 					get(_target, prop) {
 						if (prop === 'then') return undefined;
+						if (prop === 'read' || prop === 'write' || prop === 'edit') return undefined;
 						return new Proxy(function(args) { return globalThis.__hostCall(String(prop), args ?? {}); }, {
 							get(_fnTarget, child) {
 								if (child === 'then') return undefined;
@@ -120,6 +121,9 @@ export class QuickJsExecutor implements CodeExecutor {
 						});
 					}
 				});
+				globalThis.read = function(args) { return globalThis.__hostCall('read', args ?? {}); };
+				globalThis.write = function(args) { return globalThis.__hostCall('write', args ?? {}); };
+				globalThis.edit = function(args) { return globalThis.__hostCall('edit', args ?? {}); };
 				globalThis.$ = function(parts, ...values) { return globalThis.__hostCall('$', { parts: Array.from(parts), values }); };
 				globalThis.shell = function(args) { return globalThis.__hostCall('shell', args ?? {}); };
 				globalThis.console = { log: print, info: print, warn: print, error: print };
@@ -202,6 +206,9 @@ export class QuickJsExecutor implements CodeExecutor {
       }
       const cleanup = vm.evalCode(`
         globalThis.__hostCall = undefined;
+        globalThis.read = undefined;
+        globalThis.write = undefined;
+        globalThis.edit = undefined;
         globalThis.codemode = undefined;
         globalThis.$ = undefined;
         globalThis.shell = undefined;
@@ -270,9 +277,14 @@ async function resolveQuickJsPromise(
 }
 
 function newJsonHandle(
-  vm: { evalCode: (code: string) => any; unwrapResult: (result: any) => any },
+  vm: {
+    evalCode: (code: string) => any;
+    unwrapResult: (result: any) => any;
+    undefined: any;
+  },
   value: unknown,
 ): any {
+  if (value === undefined) return vm.undefined;
   return vm.unwrapResult(vm.evalCode(`JSON.parse(${JSON.stringify(JSON.stringify(value))})`));
 }
 

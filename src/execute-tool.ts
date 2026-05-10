@@ -46,12 +46,12 @@ export function createExecuteTool(options: ExecuteToolOptions): ToolDefinition {
     name: "execute_tools",
     label: "Execute Tools",
     description: `Execute TypeScript code that calls tools as typed functions.
-Write code using the codemode.* API. Your code is type-checked before execution.
+Write code using top-level file tools and the codemode.* API. Your code is type-checked before execution.
 
 Available tools in code:
-- codemode.read({ path }) → file content as string
-- codemode.write({ path, content }) → void
-- codemode.edit({ path, oldText, newText }) → find-and-replace in file
+- read({ path }) → file content as string
+- write({ path, content }) → void
+- edit({ path, edits: [{ oldText, newText }] }) → exact text replacement in a file
 - codemode.search_tools({ query }) → discover available tools
 - codemode.describe_tools({ namespace, tool? }) → browse MCP tools
 - codemode.<namespace>.<tool>(args) → call MCP tools (e.g., codemode.github.search_issues())
@@ -64,7 +64,7 @@ Return a value to include it in the result. Type errors are returned for correct
     parameters: Type.Object({
       code: Type.String({
         description:
-          "TypeScript code body. Has access to codemode.read(), codemode.write(), codemode.edit(), codemode.search_tools(), codemode.describe_tools(), codemode.<namespace>.<tool>() for MCP, print(), and π.keyName from strings parameter.",
+          "TypeScript code body. Has access to read(), write(), edit(), codemode.search_tools(), codemode.describe_tools(), codemode.<namespace>.<tool>() for MCP, print(), and π.keyName from strings parameter.",
       }),
       strings: Type.Optional(
         Type.Record(Type.String(), Type.String(), {
