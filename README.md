@@ -89,7 +89,24 @@ const status = await cli.git.status({ short: true, branch: true });
 const hits = await cli.rg.search({ pattern: "TODO", paths: ["src"], lineNumber: true });
 ```
 
-Each `cli` tool/operation must be allowlisted in config. Backends may be native host commands or `just-bash` commands. `just-bash` still uses scoped mounts internally, typically `/workspace` mapped to the project root read/write and `/tmp` as in-memory temp space. Network and JS/Python runtimes remain disabled by default.
+Each `cli` tool/operation must be allowlisted in config. Backends may be native host commands or `just-bash` commands. `just-bash` backend operations are explicitly limited to read-only operation metadata and must exist in the installed `just-bash` command set; discovery is used for validation only and never auto-exposes commands. `just-bash` still uses scoped mounts internally, typically `/workspace` mapped to the project root read/write and `/tmp` as in-memory temp space. Network and JS/Python runtimes remain disabled by default.
+
+Host command output is capped inline at 50 KiB per stream, with a truncation marker when exceeded. Non-zero command exits do not throw; inspect `exitCode`. Denied operations, missing executables, timeouts, and invalid runtime argument shapes throw clear CLI errors.
+
+Operation-specific timeouts can be configured with object-form `operations`:
+
+```json
+{
+  "cli": {
+    "rg": {
+      "backend": "host",
+      "operations": {
+        "search": { "timeoutMs": 5000 }
+      }
+    }
+  }
+}
+```
 
 ## MCP discovery workflow
 
@@ -139,7 +156,10 @@ Codemode-specific MCP servers and typed CLI capabilities can also be configured 
   "cli": {
     "git": { "backend": "host", "operations": ["status", "branch"] },
     "gh": { "backend": "host", "operations": ["issueView", "issueList", "prView", "prList"] },
-    "rg": { "backend": "host", "operations": ["search"] }
+    "rg": { "backend": "host", "operations": ["search"] },
+    "find": { "backend": "just-bash", "operations": ["files"] },
+    "grep": { "backend": "just-bash", "operations": ["search"] },
+    "ls": { "backend": "just-bash", "operations": ["list"] }
   }
 }
 ```

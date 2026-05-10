@@ -20,6 +20,7 @@ export type CliConfig = Record<string, CliToolConfig>;
 
 export interface CliToolConfig {
   backend: "host" | "just-bash";
+  command?: string;
   operations: string[] | Record<string, CliOperationConfig>;
 }
 

@@ -143,8 +143,22 @@ function setupGlobals(userStrings: Record<string, string>): void {
           {
             get(_, operation: string) {
               if (operation === "then") return undefined;
-              return (args?: unknown) =>
-                callTool(`cli.${String(tool)}.${String(operation)}`, args ?? {});
+              return async (args?: unknown) => {
+                try {
+                  return await callTool("cli.__call", {
+                    tool: String(tool),
+                    operation: String(operation),
+                    args: args ?? {},
+                  });
+                } catch (err) {
+                  if (
+                    String((err as Error)?.message ?? err).includes('Tool "cli.__call" not found')
+                  ) {
+                    return callTool(`cli.${String(tool)}.${String(operation)}`, args ?? {});
+                  }
+                  throw err;
+                }
+              };
             },
           },
         );

@@ -130,7 +130,16 @@ export class QuickJsExecutor implements CodeExecutor {
 						return new Proxy({}, {
 							get(_toolTarget, operation) {
 								if (operation === 'then') return undefined;
-								return function(args) { return globalThis.__hostCall('cli.' + String(tool) + '.' + String(operation), args ?? {}); };
+								return async function(args) {
+									try {
+										return await globalThis.__hostCall('cli.__call', { tool: String(tool), operation: String(operation), args: args ?? {} });
+									} catch (err) {
+										if (String(err && err.message || err).includes('Tool "cli.__call" not found')) {
+											return globalThis.__hostCall('cli.' + String(tool) + '.' + String(operation), args ?? {});
+										}
+										throw err;
+									}
+								};
 							}
 						});
 					}
