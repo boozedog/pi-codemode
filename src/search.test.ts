@@ -41,6 +41,9 @@ describe("tool search", () => {
 
     const ghOutput = searchTools("github issue");
     expect(ghOutput).toContain("[cli] cli.gh.issueView()");
+
+    buildSearchIndex([], [], { gh: { backend: "host", operations: ["issueList"] } });
+    expect(searchTools("json")).toContain("[cli] cli.gh.issueList()");
   });
 
   test("indexes MCP namespace, description, and input parameter names", () => {

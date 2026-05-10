@@ -4,182 +4,9 @@ import { spawn } from "node:child_process";
 import { getCommandNames } from "just-bash";
 import { executeJustBash, type ShellResult } from "./shell.js";
 import type { CliConfig, CliOperationConfig, CliToolConfig } from "./config.js";
+import { CLI_OPERATIONS, getCliOperationDefinition } from "./cli-operations.js";
 
 export interface CommandResult extends ShellResult {}
-
-type OperationEffect = "read" | "write" | "external";
-
-type OperationHandler = (args: Record<string, unknown>) => string[];
-
-interface OperationDefinition {
-  effect: OperationEffect;
-  toArgv: OperationHandler;
-}
-
-const DEFAULT_GH_ISSUE_VIEW_JSON = [
-  "number",
-  "title",
-  "state",
-  "url",
-  "body",
-  "author",
-  "createdAt",
-  "updatedAt",
-  "labels",
-  "assignees",
-  "comments",
-];
-const DEFAULT_GH_ISSUE_LIST_JSON = [
-  "number",
-  "title",
-  "state",
-  "url",
-  "author",
-  "createdAt",
-  "updatedAt",
-  "labels",
-  "assignees",
-  "comments",
-];
-const DEFAULT_GH_PR_VIEW_JSON = [
-  "number",
-  "title",
-  "state",
-  "url",
-  "body",
-  "author",
-  "createdAt",
-  "updatedAt",
-  "labels",
-  "assignees",
-  "comments",
-  "headRefName",
-  "baseRefName",
-  "isDraft",
-  "mergeable",
-];
-const DEFAULT_GH_PR_LIST_JSON = [
-  "number",
-  "title",
-  "state",
-  "url",
-  "author",
-  "createdAt",
-  "updatedAt",
-  "labels",
-  "assignees",
-  "comments",
-  "headRefName",
-  "baseRefName",
-  "isDraft",
-];
-
-const OPERATIONS: Record<string, Record<string, OperationDefinition>> = {
-  git: {
-    status: {
-      effect: "read",
-      toArgv: (args) => [
-        "status",
-        ...(args.short ? ["--short"] : []),
-        ...(args.branch ? ["--branch"] : []),
-      ],
-    },
-    branch: {
-      effect: "read",
-      toArgv: (args) => ["branch", ...(args.showCurrent ? ["--show-current"] : [])],
-    },
-  },
-  gh: {
-    issueView: {
-      effect: "external",
-      toArgv: (args) => [
-        "issue",
-        "view",
-        requiredNumber(args, "number"),
-        ...repo(args),
-        ...json(args, DEFAULT_GH_ISSUE_VIEW_JSON),
-      ],
-    },
-    issueList: {
-      effect: "external",
-      toArgv: (args) => [
-        "issue",
-        "list",
-        ...repo(args),
-        ...state(args),
-        ...limit(args),
-        ...json(args, DEFAULT_GH_ISSUE_LIST_JSON),
-      ],
-    },
-    prView: {
-      effect: "external",
-      toArgv: (args) => [
-        "pr",
-        "view",
-        requiredNumber(args, "number"),
-        ...repo(args),
-        ...json(args, DEFAULT_GH_PR_VIEW_JSON),
-      ],
-    },
-    prList: {
-      effect: "external",
-      toArgv: (args) => [
-        "pr",
-        "list",
-        ...repo(args),
-        ...state(args),
-        ...limit(args),
-        ...json(args, DEFAULT_GH_PR_LIST_JSON),
-      ],
-    },
-  },
-  rg: {
-    search: {
-      effect: "read",
-      toArgv: (args) => [
-        ...(args.ignoreCase ? ["--ignore-case"] : []),
-        ...(args.lineNumber ? ["--line-number"] : []),
-        ...(args.hidden ? ["--hidden"] : []),
-        ...numberFlag("--max-count", args.maxCount),
-        ...stringArrayFlag("--glob", args.glob),
-        requiredString(args, "pattern"),
-        ...stringArray(args.paths),
-      ],
-    },
-  },
-  find: {
-    files: {
-      effect: "read",
-      toArgv: (args) => [
-        stringArg(args.path, "."),
-        ...numberFlag("-maxdepth", args.maxDepth),
-        ...(args.name === undefined ? [] : ["-name", stringArg(args.name, "", "name")]),
-        ...findType(args.type),
-      ],
-    },
-  },
-  grep: {
-    search: {
-      effect: "read",
-      toArgv: (args) => [
-        ...(args.recursive ? ["-R"] : []),
-        ...(args.ignoreCase ? ["-i"] : []),
-        requiredString(args, "pattern"),
-        ...stringArray(args.paths),
-      ],
-    },
-  },
-  ls: {
-    list: {
-      effect: "read",
-      toArgv: (args) => [
-        ...(args.all ? ["-a"] : []),
-        ...(args.long ? ["-l"] : []),
-        ...(args.path === undefined ? [] : [stringArg(args.path, ".")]),
-      ],
-    },
-  },
-};
 
 export function createCliBindings(
   config: CliConfig | undefined,
@@ -207,7 +34,7 @@ export function createCliBindings(
 
 function validateCliConfig(config: CliConfig | undefined): void {
   for (const [toolName, toolConfig] of Object.entries(config ?? {})) {
-    const defs = OPERATIONS[toolName];
+    const defs = CLI_OPERATIONS[toolName];
     if (!defs) continue;
     for (const operation of configuredOperations(toolConfig)) {
       const definition = defs[operation];
@@ -259,8 +86,9 @@ export function buildCliArgv(
   operation: string,
   args: Record<string, unknown> = {},
 ): string[] {
-  const definition = OPERATIONS[toolName]?.[operation];
+  const definition = getCliOperationDefinition(toolName, operation);
   if (!definition) throw new Error(`Unsupported CLI operation: cli.${toolName}.${operation}`);
+  validateArgs(definition.inputSchema, args);
   return definition.toArgv(args);
 }
 
@@ -347,77 +175,32 @@ function asArgs(args: unknown): Record<string, unknown> {
   return args as Record<string, unknown>;
 }
 
-function requiredString(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== "string" || value.length === 0) throw new Error(`${key} is required`);
-  return value;
-}
-function requiredNumber(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== "number" || !Number.isInteger(value)) {
-    throw new Error(`${key} must be an integer`);
+function validateArgs(
+  schema: { required?: string[]; properties?: Record<string, unknown> },
+  args: Record<string, unknown>,
+): void {
+  const properties = schema.properties ?? {};
+  for (const key of schema.required ?? []) {
+    if (args[key] === undefined) throw new Error(`${key} is required`);
   }
-  return String(value);
-}
-function stringArg(value: unknown, fallback: string, key = "path"): string {
-  if (value === undefined) return fallback;
-  if (typeof value !== "string") throw new Error(`${key} must be a string`);
-  return value;
-}
-function stringArray(value: unknown, key = "paths"): string[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) {
-    throw new Error(`${key} must be an array of strings`);
+  for (const [key, value] of Object.entries(args)) {
+    const prop = properties[key] as { type?: string; enum?: unknown[] } | undefined;
+    if (!prop) throw new Error(`Unknown CLI argument: ${key}`);
+    if (value === undefined) continue;
+    if (prop.enum && !prop.enum.includes(value))
+      throw new Error(`${key} must be one of ${prop.enum.join(", ")}`);
+    if (prop.type === "string" && typeof value !== "string")
+      throw new Error(`${key} must be a string`);
+    if (prop.type === "boolean" && typeof value !== "boolean")
+      throw new Error(`${key} must be a boolean`);
+    if (prop.type === "integer" && (typeof value !== "number" || !Number.isInteger(value)))
+      throw new Error(`${key} must be an integer`);
+    if (
+      prop.type === "array" &&
+      (!Array.isArray(value) || !value.every((v) => typeof v === "string"))
+    )
+      throw new Error(`${key} must be an array of strings`);
   }
-  return value;
-}
-function numberFlag(flag: string, value: unknown): string[] {
-  if (value === undefined) return [];
-  if (typeof value !== "number" || !Number.isInteger(value))
-    throw new Error(`${flag} must be an integer`);
-  return [flag, String(value)];
-}
-function stringArrayFlag(flag: string, value: unknown): string[] {
-  return stringArray(value, flag).flatMap((v) => [flag, v]);
-}
-function repo(args: Record<string, unknown>): string[] {
-  if (args.repo === undefined) return [];
-  if (typeof args.repo !== "string") throw new Error("repo must be a string");
-  return ["--repo", args.repo];
-}
-function json(args: Record<string, unknown>, defaults: string[] = []): string[] {
-  if (args.json === undefined && defaults.length === 0) return [];
-  const values = args.json === undefined ? defaults : stringArray(args.json, "json");
-  if (values.length === 0 || values.some((v) => v.length === 0)) {
-    throw new Error("json must be a non-empty array of strings");
-  }
-  return ["--json", values.join(",")];
-}
-function state(args: Record<string, unknown>): string[] {
-  if (args.state === undefined) return [];
-  if (!["open", "closed", "all"].includes(String(args.state))) {
-    throw new Error("state must be one of open, closed, all");
-  }
-  return ["--state", String(args.state)];
-}
-function limit(args: Record<string, unknown>): string[] {
-  if (args.limit === undefined) return [];
-  if (
-    typeof args.limit !== "number" ||
-    !Number.isInteger(args.limit) ||
-    args.limit < 1 ||
-    args.limit > 1000
-  ) {
-    throw new Error("limit must be an integer between 1 and 1000");
-  }
-  return ["--limit", String(args.limit)];
-}
-
-function findType(value: unknown): string[] {
-  if (value === undefined) return [];
-  if (value === "file") return ["-type", "f"];
-  if (value === "directory") return ["-type", "d"];
-  throw new Error("type must be one of file, directory");
 }
 
 function appendBounded(current: string, chunk: string): string {

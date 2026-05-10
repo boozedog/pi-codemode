@@ -18,6 +18,7 @@ vi.mock("@mariozechner/pi-tui", () => ({
   },
 }));
 import { buildCliArgv, createCliBindings, listJustBashCommands } from "./cli.js";
+import { CLI_OPERATIONS } from "./cli-operations.js";
 import { QuickJsExecutor } from "./executor/quickjs-executor.js";
 import { generateBuiltinTypeDefs } from "./type-generator.js";
 
@@ -40,8 +41,26 @@ describe("cli command capabilities", () => {
     });
 
     expect(types).toContain("declare const cli: CliTools");
-    expect(types).toContain("git: { status(args?: { short?: boolean; branch?: boolean })");
+    expect(types).toContain(
+      "/** Show working tree status for the current repository. */ status(args?: { short?: boolean; branch?: boolean; })",
+    );
     expect(types).not.toContain("issueView");
+  });
+
+  test("type definitions include JSDoc for every configured cli operation", () => {
+    const cli = Object.fromEntries(
+      Object.keys(CLI_OPERATIONS).map((tool) => [
+        tool,
+        { backend: "host" as const, operations: Object.keys(CLI_OPERATIONS[tool] ?? {}) },
+      ]),
+    );
+    const types = generateBuiltinTypeDefs({ cli });
+
+    for (const operations of Object.values(CLI_OPERATIONS)) {
+      for (const definition of Object.values(operations)) {
+        expect(types).toContain(`/** ${definition.docs}`);
+      }
+    }
   });
 
   test("type definitions allow overriding gh list json fields", () => {
@@ -50,10 +69,10 @@ describe("cli command capabilities", () => {
     });
 
     expect(types).toContain(
-      'issueList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number; json?: string[] })',
+      'issueList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number; json?: string[]; })',
     );
     expect(types).toContain(
-      'prList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number; json?: string[] })',
+      'prList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number; json?: string[]; })',
     );
   });
 
@@ -232,6 +251,9 @@ describe("cli command capabilities", () => {
     );
     expect(() => buildCliArgv("find", "files", { type: "symlink" })).toThrow(
       "type must be one of file, directory",
+    );
+    expect(() => buildCliArgv("ls", "list", { recursive: true })).toThrow(
+      "Unknown CLI argument: recursive",
     );
   });
 

@@ -10,6 +10,7 @@ import type { JSONSchema7, JSONSchema7Definition } from "json-schema";
 import type { McpServerInfo } from "./search.js";
 import type { CliConfig } from "./config.js";
 import { configuredOperations } from "./cli.js";
+import { getCliOperationDefinition } from "./cli-operations.js";
 
 // Top-level file tool descriptors mirror Pi's native tool names and schemas.
 const fileToolDescriptors: Record<string, { description?: string; inputSchema: JSONSchema7 }> = {
@@ -203,7 +204,7 @@ function schemaToType(schema: JSONSchema7Definition | undefined, required: strin
     case "boolean":
       return "boolean";
     case "array":
-      return `Array<${schemaToType(schema.items as JSONSchema7Definition | undefined)}>`;
+      return `${schemaToType(schema.items as JSONSchema7Definition | undefined)}[]`;
     case "object": {
       const properties = schema.properties ?? {};
       const entries = Object.entries(properties);
@@ -240,38 +241,13 @@ export function generateCliTypeDefs(config?: CliConfig): string {
 }
 
 function cliOperationSignature(tool: string, operation: string): string {
-  const signatures: Record<string, Record<string, string>> = {
-    git: {
-      status: "status(args?: { short?: boolean; branch?: boolean }): Promise<CommandResult>;",
-      branch: "branch(args?: { showCurrent?: boolean }): Promise<CommandResult>;",
-    },
-    gh: {
-      issueView:
-        "issueView(args: { number: number; repo?: string; json?: string[] }): Promise<CommandResult>;",
-      issueList:
-        'issueList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number; json?: string[] }): Promise<CommandResult>;',
-      prView:
-        "prView(args: { number: number; repo?: string; json?: string[] }): Promise<CommandResult>;",
-      prList:
-        'prList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number; json?: string[] }): Promise<CommandResult>;',
-    },
-    rg: {
-      search:
-        "search(args: { pattern: string; paths?: string[]; glob?: string[]; ignoreCase?: boolean; lineNumber?: boolean; hidden?: boolean; maxCount?: number }): Promise<CommandResult>;",
-    },
-    find: {
-      files:
-        'files(args?: { path?: string; name?: string; maxDepth?: number; type?: "file" | "directory" }): Promise<CommandResult>;',
-    },
-    grep: {
-      search:
-        "search(args: { pattern: string; paths?: string[]; recursive?: boolean; ignoreCase?: boolean }): Promise<CommandResult>;",
-    },
-    ls: {
-      list: "list(args?: { path?: string; all?: boolean; long?: boolean }): Promise<CommandResult>;",
-    },
-  };
-  return signatures[tool]?.[operation] ?? "";
+  const definition = getCliOperationDefinition(tool, operation);
+  if (!definition) return "";
+  const required = definition.inputSchema.required ?? [];
+  const argsType = schemaToType(definition.inputSchema, required);
+  const optional = required.length === 0 ? "?" : "";
+  const doc = definition.docs.replace(/\*\//g, "* /").replace(/\n/g, " ");
+  return `/** ${doc} */ ${sanitizeIdentifier(operation)}(args${optional}: ${argsType}): Promise<CommandResult>;`;
 }
 
 export function generateBuiltinTypeDefs(config?: { cli?: CliConfig }): string {
