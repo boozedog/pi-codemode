@@ -84,13 +84,27 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
 
   async function ensureConnected(namespace: string): Promise<void> {
     const serverName = namespaceToServer.get(namespace);
-    if (!serverName) throw new Error(`Unknown MCP server namespace: "${namespace}"`);
+    if (!serverName) {
+      const available = [...namespaceToServer.keys()].join(", ");
+      throw new Error(
+        `Unknown MCP server namespace: "${namespace}". Available: ${available || "none"}`,
+      );
+    }
     if (connectedServers.has(serverName)) return;
 
     const def = config.mcpServers[serverName];
     if (!def) throw new Error(`No config for MCP server: "${serverName}"`);
 
-    const connection = await manager.connect(serverName, def);
+    let connection;
+    try {
+      connection = await manager.connect(serverName, def);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to connect MCP server "${serverName}" (codemode.${namespace}): ${message}`,
+      );
+    }
+
     if (connection.status === "needs-auth") {
       throw new Error(
         `MCP server "${serverName}" requires authentication. Configure/authenticate it in pi-mcp-adapter first.`,
