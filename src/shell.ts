@@ -90,12 +90,10 @@ export async function initShell(options: ShellOptions): Promise<void> {
 }
 
 /**
- * Get or create shell context for a project.
+ * Get shell context for a project.
+ * Returns null if shell has not been initialized.
  */
-async function getShellContext(projectRoot: string): Promise<ShellContext | null> {
-  if (!shellContexts.has(projectRoot)) {
-    await initShell({ projectRoot });
-  }
+function getShellContext(projectRoot: string): ShellContext | null {
   return shellContexts.get(projectRoot) ?? null;
 }
 
@@ -107,7 +105,7 @@ export async function executeJustBash(
   command: string,
   options: { timeoutMs?: number } = {},
 ): Promise<ShellResult> {
-  const ctx = await getShellContext(projectRoot);
+  const ctx = getShellContext(projectRoot);
   if (!ctx) {
     throw new Error("Shell not initialized");
   }
@@ -223,11 +221,27 @@ export function createShellFunction(projectRoot: string) {
 
     // Handle cwd by prepending cd command
     if (options.cwd && options.cwd !== "/workspace") {
+      // Normalize path by resolving . and .. segments (prevent path traversal)
+      const normalizedPath = options.cwd.replace(/\\/g, "/").replace(/\/+/g, "/");
+      const parts = normalizedPath.split("/").filter((p) => p.length > 0);
+      const resolved: string[] = [];
+      for (const part of parts) {
+        if (part === "..") {
+          resolved.pop();
+        } else if (part !== ".") {
+          resolved.push(part);
+        }
+      }
+      const normalizedCwd = "/" + resolved.join("/");
+
       // Validate cwd is within allowed mounts
       if (
-        !options.cwd.startsWith("/workspace") &&
-        !options.cwd.startsWith("/tmp") &&
-        !options.cwd.startsWith("/home")
+        !normalizedCwd.startsWith("/workspace/") &&
+        !normalizedCwd.startsWith("/tmp/") &&
+        !normalizedCwd.startsWith("/home/") &&
+        normalizedCwd !== "/workspace" &&
+        normalizedCwd !== "/tmp" &&
+        normalizedCwd !== "/home"
       ) {
         return {
           stdout: "",
@@ -235,7 +249,7 @@ export function createShellFunction(projectRoot: string) {
           exitCode: 1,
         };
       }
-      command = `cd ${options.cwd} && ${command}`;
+      command = `cd ${normalizedCwd} && ${command}`;
     }
 
     return executeJustBash(projectRoot, command, {
