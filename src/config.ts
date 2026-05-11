@@ -114,7 +114,9 @@ function mergeConfig(base: ConfigInput, override: ConfigInput): ConfigInput {
 function normalizeConfig(config: ConfigInput): CodemodeConfig {
   const mode = config.mode ?? DEFAULT_CONFIG.mode;
   if (!CODEMODE_MODES.has(mode)) {
-    throw new Error(`Unsupported codemode mode '${String(mode)}'. Supported modes: off, safe, yolo`);
+    throw new Error(
+      `Unsupported codemode mode '${String(mode)}'. Supported modes: off, safe, yolo`,
+    );
   }
 
   const executor = config.executor ?? DEFAULT_CONFIG.executor;

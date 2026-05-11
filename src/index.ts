@@ -145,9 +145,10 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- System prompt injection ---
 
   pi.on("before_agent_start", async (event: { systemPrompt: string }) => {
-    const addition = currentMode !== "off"
-      ? generateSystemPromptAddition(builtinTypeDefs, mcpSummary, currentMode)
-      : generateNativeEditGuidance();
+    const addition =
+      currentMode !== "off"
+        ? generateSystemPromptAddition(builtinTypeDefs, mcpSummary, currentMode)
+        : generateNativeEditGuidance();
 
     return {
       systemPrompt: event.systemPrompt + "\n\n" + addition,
@@ -177,7 +178,8 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       return;
     }
 
-    const tools = mode === "yolo" && hasNativeBash() ? ["execute_tools", "bash"] : ["execute_tools"];
+    const tools =
+      mode === "yolo" && hasNativeBash() ? ["execute_tools", "bash"] : ["execute_tools"];
     pi.setActiveTools(tools);
     currentMode = mode;
     if (mode === "yolo" && !tools.includes("bash")) {

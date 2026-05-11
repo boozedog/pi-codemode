@@ -185,10 +185,52 @@ Denied by default:
 - unrestricted host bash or shell strings inside generated code
 
 In `yolo` mode, Pi's native `bash` tool is available outside `execute_tools` as an explicit escape hatch and has broader host access. Use `safe` mode when you want codemode-only tool access.
+
 - raw subprocess/argv passthrough from generated code
 - just-bash network and JS/Python runtimes
 
 Allowed capabilities are only the injected globals listed above. File tools validate paths against the project root and reject traversal outside it. Enabling host-backed `cli` operations expands trust boundaries and should be reviewed in config.
+
+## Installation
+
+### Recommended install: tagged GitHub release
+
+Pi Codemode is distributed through normal Pi extension package installs using GitHub release tags. This does not require cloning this repository to a fixed local path:
+
+```sh
+pi install git:github.com/boozedog/pi-codemode@v0.1.1
+```
+
+To try a tagged release for one Pi run without adding it to settings:
+
+```sh
+pi -e git:github.com/boozedog/pi-codemode@v0.1.1
+```
+
+For unpinned development installs from GitHub, update with:
+
+```sh
+pi update git:github.com/boozedog/pi-codemode
+# or update all Pi extensions
+pi update --extensions
+```
+
+An npm package can be added later if needed:
+
+```sh
+pi install npm:@boozedog/pi-codemode
+pi -e npm:@boozedog/pi-codemode
+```
+
+For local development, keep using a path install from this checkout:
+
+```sh
+npm install
+npm run build
+pi install /absolute/path/to/pi-codemode
+```
+
+The package manifest points Pi at `./dist/index.js`. Runtime packages are normal `dependencies`; Pi-provided APIs are declared as `peerDependencies`. Git installs run `npm install`, and the package `prepare` script builds `dist/` after install. npm publishes run `prepack`, which also builds `dist/` before creating the tarball.
 
 ## Development
 
@@ -200,3 +242,19 @@ npm run check
 ```
 
 Source lives in `src/`; generated build output lives in `dist/`.
+
+## Release checklist
+
+1. Run `npm run check`.
+2. Confirm package contents with `npm pack --dry-run`; the tarball should include `dist/index.js`, `README.md`, `LICENSE`, and `package.json`.
+3. Create and push the version tag with the npm script:
+
+   ```sh
+   npm run publish:tag
+   ```
+
+   The script runs checks, verifies package contents with `npm pack --dry-run`, then creates and pushes `v$npm_package_version` (for example `v0.1.1`).
+
+4. From a clean directory or machine, install the tag with `pi install git:github.com/boozedog/pi-codemode@<tag>`.
+5. Start Pi and confirm Codemode loads, `execute_tools` can read files, typed CLI/shell capabilities work, and the result UI renders.
+6. Optional later: publish the same version to npm with `npm publish --access public`.
