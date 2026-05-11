@@ -253,7 +253,7 @@ Source lives in `src/`; generated build output lives in `dist/`.
    npm run publish:tag
    ```
 
-   The script runs checks, verifies package contents with `npm pack --dry-run`, then creates and pushes `v$npm_package_version` (for example `v0.1.1`).
+   The script runs checks, fails if the git working tree has unstaged or staged changes, verifies package contents with `npm pack --dry-run`, then creates and pushes `v$npm_package_version` (for example `v0.1.1`).
 
 4. From a clean directory or machine, install the tag with `pi install git:github.com/boozedog/pi-codemode@<tag>`.
 5. Start Pi and confirm Codemode loads, `execute_tools` can read files, typed CLI/shell capabilities work, and the result UI renders.

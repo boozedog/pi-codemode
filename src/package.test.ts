@@ -40,8 +40,10 @@ describe("package metadata", () => {
     const pkg = packageJson();
 
     expect(pkg.scripts?.["publish:tag"]).toBe(
-      "npm run check && npm pack --dry-run && git tag v$npm_package_version && git push origin v$npm_package_version",
+      "npm run check && npm run check:clean-tree && npm pack --dry-run && git tag v$npm_package_version && git push origin v$npm_package_version",
     );
+    expect(pkg.scripts?.["check:clean-tree"]).toContain("Working tree is dirty");
+    expect(pkg.scripts?.["check:clean-tree"]).toContain("git status --short");
   });
 
   test("keeps runtime imports installable and Pi APIs as peers", () => {

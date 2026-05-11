@@ -40,7 +40,8 @@
     "check": "npm run format:check && npm run lint && npm run build && npm test",
     "prepack": "npm run build",
     "prepare": "npm run build",
-    "publish:tag": "npm run check && npm pack --dry-run && git tag v$npm_package_version && git push origin v$npm_package_version"
+    "publish:tag": "npm run check && npm run check:clean-tree && npm pack --dry-run && git tag v$npm_package_version && git push origin v$npm_package_version",
+    "check:clean-tree": "git diff --quiet && git diff --cached --quiet || (echo \"Working tree is dirty; commit or stash changes before publishing.\" && git status --short && exit 1)"
   },
   "dependencies": {
     "just-bash": "^2.14.4",
