@@ -3,7 +3,6 @@
 // This is the single tool that replaces most of Pi's built-in tools.
 // The LLM writes TypeScript code that calls tools as typed functions.
 
-import { Type } from "@sinclair/typebox";
 import type { ExtensionContext, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import { typeCheck, type TypeCheckError } from "./type-checker.js";
@@ -63,18 +62,19 @@ Available tools in code:
 
 Return the final value you want in the result. Prefer return over print for final output; Type errors are returned for correction.`,
 
-    parameters: Type.Object({
-      code: Type.String({
-        description:
-          "TypeScript code body. Has access to read(), write(), replace_in_file(), apply_patch(), codemode.search_tools(), codemode.describe_tools(), codemode.<namespace>.<tool>() for MCP, print(), and π.keyName from strings parameter.",
-      }),
-      strings: Type.Optional(
-        Type.Record(Type.String(), Type.String(), {
+    parameters: objectSchema(
+      {
+        code: stringSchema({
+          description:
+            "TypeScript code body. Has access to read(), write(), replace_in_file(), apply_patch(), codemode.search_tools(), codemode.describe_tools(), codemode.<namespace>.<tool>() for MCP, print(), and π.keyName from strings parameter.",
+        }),
+        strings: recordSchema(stringSchema(), stringSchema(), {
           description:
             "Named string constants injected into the code as π.keyName. Use this for file content, templates, or any text that would be hard to quote inside JavaScript code. The strings only need standard JSON escaping — no JS string literal escaping required.",
         }),
-      ),
-    }),
+      },
+      ["code"],
+    ),
 
     async execute(
       _toolCallId: string,
@@ -331,4 +331,26 @@ async function executeCode(
       elapsedMs: performance.now() - start,
     };
   }
+}
+
+function stringSchema(options: Record<string, unknown> = {}) {
+  return { type: "string", ...options } as const;
+}
+
+function recordSchema(keySchema: unknown, valueSchema: unknown, options: Record<string, unknown> = {}) {
+  return {
+    type: "object",
+    propertyNames: keySchema,
+    additionalProperties: valueSchema,
+    ...options,
+  } as const;
+}
+
+function objectSchema(properties: Record<string, unknown>, required = Object.keys(properties)) {
+  return {
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  } as const;
 }

@@ -17,19 +17,23 @@ afterEach(async () => {
 });
 
 describe("loadConfig", () => {
-  test("defaults to yolo mode with QuickJS", () => {
+  test("defaults to normal codemode with QuickJS", () => {
     const config = loadConfig({ homeDir: "/missing-home", projectDir: "/missing-project" });
 
-    expect(config.mode).toBe("yolo");
+    expect(config.mode).toBe("on");
     expect(config.executor).toEqual({ type: "quickjs", timeoutMs: 120_000 });
   });
 
-  test("loads explicit safe and off modes", async () => {
+  test("loads explicit on, yolo, and off modes", async () => {
     const projectDir = await tempDir();
     await mkdir(join(projectDir, ".pi"), { recursive: true });
-    await writeFile(join(projectDir, ".pi", "codemode.json"), JSON.stringify({ mode: "safe" }));
+    await writeFile(join(projectDir, ".pi", "codemode.json"), JSON.stringify({ mode: "on" }));
 
-    expect(loadConfig({ homeDir: "/missing-home", projectDir }).mode).toBe("safe");
+    expect(loadConfig({ homeDir: "/missing-home", projectDir }).mode).toBe("on");
+
+    await writeFile(join(projectDir, ".pi", "codemode.json"), JSON.stringify({ mode: "yolo" }));
+
+    expect(loadConfig({ homeDir: "/missing-home", projectDir }).mode).toBe("yolo");
 
     await writeFile(join(projectDir, ".pi", "codemode.json"), JSON.stringify({ mode: "off" }));
 

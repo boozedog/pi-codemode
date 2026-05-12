@@ -5,15 +5,6 @@ import { describe, expect, test, vi } from "vitest";
 import { createFileTools } from "./file-tools.js";
 import type { ToolBindings } from "./tool-bindings.js";
 
-vi.mock("@sinclair/typebox", () => ({
-  Type: {
-    Object: (properties: unknown) => ({ type: "object", properties }),
-    String: () => ({ type: "string" }),
-    Optional: (schema: unknown) => schema,
-    Record: () => ({ type: "object" }),
-  },
-}));
-
 vi.mock("@mariozechner/pi-tui", () => ({
   Text: class Text {
     constructor(public text: string) {}

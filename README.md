@@ -4,14 +4,14 @@ Pi Codemode is a Pi extension that replaces many small tool calls with one typed
 
 ## Quickstart
 
-Install the package in Pi as an extension package, then start Pi in a project as usual. Codemode starts in configured mode; the default is `yolo`, which exposes both `execute_tools` and Pi's native `bash` tool when available.
+Install the package in Pi as an extension package, then start Pi in a project as usual. Codemode starts in configured mode; the default is `on`, which exposes `execute_tools` plus Pi's normal non-bash tools.
 
 Useful controls:
 
-- `/codemode yolo` exposes `execute_tools` plus native `bash` when available.
-- `/codemode safe` exposes only `execute_tools`.
+- `/codemode on` exposes `execute_tools` plus normal non-bash tools.
+- `/codemode yolo` exposes everything from `on` plus native `bash` when available.
 - `/codemode off` restores normal Pi tools.
-- Bare `/codemode` toggles `off <-> yolo`.
+- Bare `/codemode` toggles `off <-> on`.
 
 ## The `execute_tools` shape
 
@@ -139,7 +139,7 @@ Default config:
 
 ```json
 {
-  "mode": "yolo",
+  "mode": "on",
   "executor": {
     "type": "quickjs",
     "timeoutMs": 120000
@@ -147,7 +147,7 @@ Default config:
 }
 ```
 
-`mode` can be `"yolo"`, `"safe"`, or `"off"`. In `yolo`, native `bash` is included if Pi provides it; if not, codemode gracefully falls back to `execute_tools` only and notifies you.
+`mode` can be `"on"`, `"yolo"`, or `"off"`. In `on`, Codemode exposes `execute_tools` plus normal non-bash tools. In `yolo`, native `bash` is included if Pi provides it; if not, codemode gracefully falls back to normal codemode tools and notifies you.
 
 Codemode-specific MCP servers and typed CLI capabilities can also be configured here:
 
@@ -159,12 +159,13 @@ Codemode-specific MCP servers and typed CLI capabilities can also be configured 
     }
   },
   "cli": {
-    "git": { "backend": "host", "operations": ["status", "branch"] },
-    "gh": { "backend": "host", "operations": ["issueView", "issueList", "prView", "prList"] },
+    "git": { "backend": "host", "operations": ["status", "branch", "diff", "log", "show", "remote", "revParse", "add", "commit", "push", "pull", "switch", "checkout", "restore", "reset", "stash", "tag"] },
+    "gh": { "backend": "host", "operations": ["issueView", "issueList", "prView", "prList", "prDiff", "prChecks", "prStatus"] },
     "rg": { "backend": "host", "operations": ["search"] },
     "find": { "backend": "just-bash", "operations": ["files"] },
     "grep": { "backend": "just-bash", "operations": ["search"] },
-    "ls": { "backend": "just-bash", "operations": ["list"] }
+    "ls": { "backend": "just-bash", "operations": ["list"] },
+    "vitest": { "backend": "host", "operations": ["run"] }
   }
 }
 ```
@@ -184,7 +185,7 @@ Denied by default:
 - subprocess spawning from generated code
 - unrestricted host bash or shell strings inside generated code
 
-In `yolo` mode, Pi's native `bash` tool is available outside `execute_tools` as an explicit escape hatch and has broader host access. Use `safe` mode when you want codemode-only tool access.
+In `yolo` mode, Pi's native `bash` tool is available outside `execute_tools` as an explicit escape hatch and has broader host access. Use `on` mode when you want Codemode without the native bash escape hatch.
 
 - raw subprocess/argv passthrough from generated code
 - just-bash network and JS/Python runtimes

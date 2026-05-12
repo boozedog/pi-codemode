@@ -68,6 +68,15 @@ export const DEFAULT_GH_PR_LIST_JSON = [
   "baseRefName",
   "isDraft",
 ];
+export const DEFAULT_GH_PR_CHECKS_JSON = [
+  "name",
+  "state",
+  "conclusion",
+  "link",
+  "startedAt",
+  "completedAt",
+  "workflow",
+];
 
 const s = (description?: string): JSONSchema7 => ({ type: "string", description });
 const b = (description?: string): JSONSchema7 => ({ type: "boolean", description });
@@ -93,6 +102,16 @@ const findTypeSchema: JSONSchema7 = {
   enum: ["file", "directory"],
   description: "Restrict results to files or directories.",
 };
+const resetModeSchema: JSONSchema7 = {
+  type: "string",
+  enum: ["soft", "mixed", "hard"],
+  description: "Reset mode.",
+};
+const stashCommandSchema: JSONSchema7 = {
+  type: "string",
+  enum: ["push", "pop", "apply", "list", "drop", "clear"],
+  description: "Stash subcommand.",
+};
 
 export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinition>> = {
   git: {
@@ -115,6 +134,168 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       params: ["showCurrent"],
       inputSchema: obj({ showCurrent: b("Print only the current branch name.") }),
       toArgv: (args) => ["branch", ...(args.showCurrent ? ["--show-current"] : [])],
+    },
+    diff: {
+      effect: "read",
+      description: "Git diff. Show changes in the working tree or index.",
+      docs: "Show changes in the working tree or index.",
+      params: ["staged", "stat", "nameOnly", "ref", "paths"],
+      inputSchema: obj({
+        staged: b("Show staged changes."),
+        stat: b("Show diffstat."),
+        nameOnly: b("Show only changed file names."),
+        ref: s("Commit/range to diff."),
+        paths: sa("Restrict diff to paths."),
+      }),
+      toArgv: (args) => [
+        "diff",
+        ...(args.staged ? ["--cached"] : []),
+        ...(args.stat ? ["--stat"] : []),
+        ...(args.nameOnly ? ["--name-only"] : []),
+        ...optionalString(args.ref, "ref"),
+        ...pathspec(args.paths),
+      ],
+    },
+    log: {
+      effect: "read",
+      description: "Git log. Show commit history.",
+      docs: "Show commit history.",
+      params: ["limit", "oneline", "stat", "paths"],
+      inputSchema: obj({
+        limit: n("Maximum number of commits."),
+        oneline: b("Use one-line format."),
+        stat: b("Show diffstat."),
+        paths: sa("Restrict history to paths."),
+      }),
+      toArgv: (args) => [
+        "log",
+        ...numberFlag("--max-count", args.limit),
+        ...(args.oneline ? ["--oneline"] : []),
+        ...(args.stat ? ["--stat"] : []),
+        ...pathspec(args.paths),
+      ],
+    },
+    show: {
+      effect: "read",
+      description: "Git show. Show an object such as a commit.",
+      docs: "Show an object such as a commit.",
+      params: ["ref", "stat", "nameOnly"],
+      inputSchema: obj({
+        ref: s("Object or revision to show."),
+        stat: b("Show diffstat."),
+        nameOnly: b("Show only changed file names."),
+      }),
+      toArgv: (args) => [
+        "show",
+        ...(args.stat ? ["--stat"] : []),
+        ...(args.nameOnly ? ["--name-only"] : []),
+        ...optionalString(args.ref, "ref"),
+      ],
+    },
+    remote: {
+      effect: "read",
+      description: "Git remote. List configured remotes.",
+      docs: "List configured remotes.",
+      params: ["verbose"],
+      inputSchema: obj({ verbose: b("Show remote URLs.") }),
+      toArgv: (args) => ["remote", ...(args.verbose ? ["-v"] : [])],
+    },
+    revParse: {
+      effect: "read",
+      description: "Git rev-parse. Resolve revisions and repository paths.",
+      docs: "Resolve revisions and repository paths.",
+      params: ["ref", "showTopLevel", "isInsideWorkTree"],
+      inputSchema: obj({
+        ref: s("Revision to resolve."),
+        showTopLevel: b("Show repository root."),
+        isInsideWorkTree: b("Print whether cwd is inside a work tree."),
+      }),
+      toArgv: (args) => [
+        "rev-parse",
+        ...(args.showTopLevel ? ["--show-toplevel"] : []),
+        ...(args.isInsideWorkTree ? ["--is-inside-work-tree"] : []),
+        ...optionalString(args.ref, "ref"),
+      ],
+    },
+    add: {
+      effect: "write",
+      description: "Git add. Stage file contents for the next commit.",
+      docs: "Stage file contents for the next commit.",
+      params: ["paths", "all", "patch"],
+      inputSchema: obj({ paths: sa("Paths to stage."), all: b("Stage all changes."), patch: b("Interactively choose hunks.") }),
+      toArgv: (args) => ["add", ...(args.all ? ["--all"] : []), ...(args.patch ? ["--patch"] : []), ...pathspec(args.paths)],
+    },
+    commit: {
+      effect: "write",
+      description: "Git commit. Record staged changes in the repository.",
+      docs: "Record staged changes in the repository.",
+      params: ["message", "all", "amend"],
+      inputSchema: obj({ message: s("Commit message."), all: b("Stage tracked files before committing."), amend: b("Amend the previous commit.") }, ["message"]),
+      toArgv: (args) => ["commit", ...(args.all ? ["--all"] : []), ...(args.amend ? ["--amend"] : []), "-m", requiredString(args, "message")],
+    },
+    push: {
+      effect: "external",
+      description: "Git push. Update remote refs using local refs.",
+      docs: "Update remote refs using local refs.",
+      params: ["remote", "branch", "setUpstream", "tags"],
+      inputSchema: obj({ remote: s("Remote name."), branch: s("Branch or refspec to push."), setUpstream: b("Set upstream tracking."), tags: b("Push tags.") }),
+      toArgv: (args) => ["push", ...(args.setUpstream ? ["--set-upstream"] : []), ...(args.tags ? ["--tags"] : []), ...optionalString(args.remote, "remote"), ...optionalString(args.branch, "branch")],
+    },
+    pull: {
+      effect: "external",
+      description: "Git pull. Fetch from and integrate with another repository or branch.",
+      docs: "Fetch from and integrate with another repository or branch.",
+      params: ["remote", "branch", "rebase", "ffOnly"],
+      inputSchema: obj({ remote: s("Remote name."), branch: s("Branch to pull."), rebase: b("Rebase instead of merge."), ffOnly: b("Abort unless fast-forward is possible.") }),
+      toArgv: (args) => ["pull", ...(args.rebase ? ["--rebase"] : []), ...(args.ffOnly ? ["--ff-only"] : []), ...optionalString(args.remote, "remote"), ...optionalString(args.branch, "branch")],
+    },
+    switch: {
+      effect: "write",
+      description: "Git switch. Switch branches.",
+      docs: "Switch branches.",
+      params: ["branch", "create", "detach"],
+      inputSchema: obj({ branch: s("Branch to switch to."), create: b("Create a new branch."), detach: b("Detach HEAD at branch/ref.") }, ["branch"]),
+      toArgv: (args) => ["switch", ...(args.create ? ["--create"] : []), ...(args.detach ? ["--detach"] : []), requiredString(args, "branch")],
+    },
+    checkout: {
+      effect: "write",
+      description: "Git checkout. Switch branches or restore paths.",
+      docs: "Switch branches or restore working tree paths.",
+      params: ["branch", "paths"],
+      inputSchema: obj({ branch: s("Branch or tree-ish."), paths: sa("Paths to check out.") }),
+      toArgv: (args) => ["checkout", ...optionalString(args.branch, "branch"), ...pathspec(args.paths)],
+    },
+    restore: {
+      effect: "write",
+      description: "Git restore. Restore working tree files.",
+      docs: "Restore working tree files.",
+      params: ["paths", "staged", "source"],
+      inputSchema: obj({ paths: sa("Paths to restore."), staged: b("Restore the index."), source: s("Tree-ish to restore from.") }),
+      toArgv: (args) => ["restore", ...(args.staged ? ["--staged"] : []), ...stringFlag("--source", args.source, "source"), ...pathspec(args.paths)],
+    },
+    reset: {
+      effect: "write",
+      description: "Git reset. Reset current HEAD to a state.",
+      docs: "Reset current HEAD to a state.",
+      params: ["mode", "ref", "paths"],
+      inputSchema: obj({ mode: resetModeSchema, ref: s("Commit to reset to."), paths: sa("Paths to reset.") }),
+      toArgv: (args) => ["reset", ...resetMode(args.mode), ...optionalString(args.ref, "ref"), ...pathspec(args.paths)],
+    },
+    stash: {
+      effect: "write",
+      description: "Git stash. Stash or apply working tree changes.",
+      docs: "Stash, list, apply, pop, drop, or clear working tree changes.",
+      params: ["command", "message", "stash", "includeUntracked"],
+      inputSchema: obj({ command: stashCommandSchema, message: s("Stash message for push."), stash: s("Stash reference."), includeUntracked: b("Include untracked files for push.") }),
+      toArgv: (args) => ["stash", ...stashCommand(args.command), ...(args.includeUntracked ? ["--include-untracked"] : []), ...stringFlag("-m", args.message, "message"), ...optionalString(args.stash, "stash")],
+    },
+    tag: {
+      effect: "write",
+      description: "Git tag. Create, list, delete, or verify tags.",
+      docs: "Create, list, delete, or verify tags.",
+      params: ["name", "message", "delete", "list"],
+      inputSchema: obj({ name: s("Tag name."), message: s("Create annotated tag with message."), delete: b("Delete the tag."), list: b("List tags matching name.") }),
+      toArgv: (args) => ["tag", ...(args.delete ? ["--delete"] : []), ...(args.list ? ["--list"] : []), ...(args.message ? ["-a"] : []), ...optionalString(args.name, "name"), ...stringFlag("-m", args.message, "message")],
     },
   },
   gh: {
@@ -199,6 +380,59 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         ...limit(args),
         ...json(args, DEFAULT_GH_PR_LIST_JSON),
       ],
+    },
+    prDiff: {
+      effect: "external",
+      description: "GitHub pull request diff. View changes in a pull request.",
+      docs: "View changes in a pull request.",
+      params: ["number", "repo", "patch", "github", "pull", "request", "pr", "diff"],
+      inputSchema: obj(
+        {
+          number: n("Pull request number."),
+          repo: s("Repository in OWNER/REPO format."),
+          patch: b("Display diff in patch format."),
+        },
+        ["number"],
+      ),
+      toArgv: (args) => [
+        "pr",
+        "diff",
+        requiredNumber(args, "number"),
+        ...repo(args),
+        ...(args.patch ? ["--patch"] : []),
+      ],
+    },
+    prChecks: {
+      effect: "external",
+      description: "GitHub pull request checks. View CI status for a pull request.",
+      docs: `View CI status for a pull request. Defaults to JSON output with ${DEFAULT_GH_PR_CHECKS_JSON.join(",")}. Pass json?: string[] to override returned fields.`,
+      params: ["number", "repo", "json", "github", "pull", "request", "pr", "checks"],
+      inputSchema: obj(
+        {
+          number: n("Pull request number."),
+          repo: s("Repository in OWNER/REPO format."),
+          json: sa("Fields to return as JSON."),
+        },
+        ["number"],
+      ),
+      toArgv: (args) => [
+        "pr",
+        "checks",
+        requiredNumber(args, "number"),
+        ...repo(args),
+        ...json(args, DEFAULT_GH_PR_CHECKS_JSON),
+      ],
+    },
+    prStatus: {
+      effect: "external",
+      description: "GitHub pull request status. Show PR status relevant to the current repository.",
+      docs: "Show PR status relevant to the current repository. Pass json?: string[] to request JSON fields.",
+      params: ["repo", "json", "github", "pull", "request", "pr", "status"],
+      inputSchema: obj({
+        repo: s("Repository in OWNER/REPO format."),
+        json: sa("Fields to return as JSON."),
+      }),
+      toArgv: (args) => ["pr", "status", ...repo(args), ...json(args)],
     },
   },
   rg: {
@@ -291,6 +525,19 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       ],
     },
   },
+  vitest: {
+    run: {
+      effect: "write",
+      description: "Vitest run. Run tests once, optionally updating snapshots.",
+      docs: "Run Vitest tests once, optionally updating snapshots.",
+      params: ["paths", "update"],
+      inputSchema: obj({
+        paths: sa("Test files or filters to run."),
+        update: b("Update snapshots."),
+      }),
+      toArgv: (args) => ["run", ...stringArray(args.paths), ...(args.update ? ["--update"] : [])],
+    },
+  },
 };
 
 export function getCliOperationDefinition(
@@ -330,6 +577,30 @@ function numberFlag(flag: string, value: unknown): string[] {
 }
 function stringArrayFlag(flag: string, value: unknown): string[] {
   return stringArray(value, flag).flatMap((v) => [flag, v]);
+}
+function optionalString(value: unknown, key: string): string[] {
+  if (value === undefined) return [];
+  if (typeof value !== "string") throw new Error(`${key} must be a string`);
+  return [value];
+}
+function stringFlag(flag: string, value: unknown, key: string): string[] {
+  if (value === undefined) return [];
+  if (typeof value !== "string") throw new Error(`${key} must be a string`);
+  return [flag, value];
+}
+function resetMode(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (["soft", "mixed", "hard"].includes(String(value))) return [`--${String(value)}`];
+  throw new Error("mode must be one of soft, mixed, hard");
+}
+function stashCommand(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (["push", "pop", "apply", "list", "drop", "clear"].includes(String(value))) return [String(value)];
+  throw new Error("command must be one of push, pop, apply, list, drop, clear");
+}
+function pathspec(value: unknown): string[] {
+  const paths = stringArray(value);
+  return paths.length === 0 ? [] : ["--", ...paths];
 }
 function repo(args: Record<string, unknown>): string[] {
   if (args.repo === undefined) return [];

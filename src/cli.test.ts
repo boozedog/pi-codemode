@@ -3,15 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-vi.mock("@sinclair/typebox", () => ({
-  Type: {
-    Object: (properties: unknown) => ({ type: "object", properties }),
-    String: () => ({ type: "string" }),
-    Optional: (schema: unknown) => schema,
-    Record: () => ({ type: "object" }),
-  },
-}));
-
 vi.mock("@mariozechner/pi-tui", () => ({
   Text: class Text {
     constructor(public text: string) {}
@@ -74,6 +65,26 @@ describe("cli command capabilities", () => {
     expect(types).toContain(
       'prList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number; json?: string[]; })',
     );
+    expect(types).toContain(
+      'interface CommandResult { stdout: string; stderr: string; exitCode: number; stdoutFile?: string; stderrFile?: string; json?: unknown; }',
+    );
+  });
+
+  test("host commands automatically parse valid JSON output", async () => {
+    const cwd = tempProject();
+    writeFileSync(join(cwd, "issue"), 'process.stdout.write(JSON.stringify({ number: 1, title: "bug" }));\n');
+    const result = await new QuickJsExecutor({ timeout: 10_000 }).execute(
+      "return await cli.gh.issueView({ number: 1 });",
+      {
+        cli: createCliBindings(
+          { gh: { backend: "host", command: process.execPath, operations: ["issueView"] } },
+          cwd,
+        ),
+      },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toMatchObject({ json: { number: 1, title: "bug" } });
   });
 
   test("runs configured host-backed ripgrep with typed args", async () => {
@@ -138,22 +149,22 @@ describe("cli command capabilities", () => {
     );
   });
 
-  test("unsupported write-like operations are not exposed", async () => {
+  test("unknown write-like operations are not exposed", async () => {
     const cwd = tempProject();
     const bindings = {
-      cli: createCliBindings({ git: { backend: "host", operations: ["commit"] } }, cwd),
+      cli: createCliBindings({ git: { backend: "host", operations: ["rebase"] } }, cwd),
     };
     const types = generateBuiltinTypeDefs({
-      cli: { git: { backend: "host", operations: ["commit"] } },
+      cli: { git: { backend: "host", operations: ["rebase"] } },
     });
 
-    expect(types).not.toContain("commit");
+    expect(types).not.toContain("rebase");
     const result = await new QuickJsExecutor({ timeout: 10_000 }).execute(
-      "return await cli.git.commit({ message: 'nope' });",
+      "return await cli.git.rebase({ branch: 'main' });",
       bindings,
     );
 
-    expect(result.error).toContain("cli.git.commit");
+    expect(result.error).toContain("cli.git.rebase");
   });
 
   test("builds argv for supported operations", () => {
@@ -166,6 +177,76 @@ describe("cli command capabilities", () => {
     expect(buildCliArgv("git", "branch", { showCurrent: true })).toEqual([
       "branch",
       "--show-current",
+    ]);
+    expect(buildCliArgv("git", "diff", { staged: true, paths: ["src/a.ts"] })).toEqual([
+      "diff",
+      "--cached",
+      "--",
+      "src/a.ts",
+    ]);
+    expect(buildCliArgv("git", "log", { limit: 3, oneline: true })).toEqual([
+      "log",
+      "--max-count",
+      "3",
+      "--oneline",
+    ]);
+    expect(buildCliArgv("git", "show", { ref: "HEAD", stat: true })).toEqual([
+      "show",
+      "--stat",
+      "HEAD",
+    ]);
+    expect(buildCliArgv("git", "remote", { verbose: true })).toEqual(["remote", "-v"]);
+    expect(buildCliArgv("git", "revParse", { ref: "HEAD" })).toEqual(["rev-parse", "HEAD"]);
+    expect(buildCliArgv("git", "add", { paths: ["src/a.ts"] })).toEqual([
+      "add",
+      "--",
+      "src/a.ts",
+    ]);
+    expect(buildCliArgv("git", "commit", { message: "feat: add tools" })).toEqual([
+      "commit",
+      "-m",
+      "feat: add tools",
+    ]);
+    expect(buildCliArgv("git", "push", { remote: "origin", branch: "main" })).toEqual([
+      "push",
+      "origin",
+      "main",
+    ]);
+    expect(buildCliArgv("git", "pull", { rebase: true })).toEqual(["pull", "--rebase"]);
+    expect(buildCliArgv("git", "switch", { branch: "feature", create: true })).toEqual([
+      "switch",
+      "--create",
+      "feature",
+    ]);
+    expect(buildCliArgv("git", "checkout", { branch: "main", paths: ["README.md"] })).toEqual([
+      "checkout",
+      "main",
+      "--",
+      "README.md",
+    ]);
+    expect(buildCliArgv("git", "restore", { staged: true, paths: ["src/a.ts"] })).toEqual([
+      "restore",
+      "--staged",
+      "--",
+      "src/a.ts",
+    ]);
+    expect(buildCliArgv("git", "reset", { mode: "soft", ref: "HEAD~1" })).toEqual([
+      "reset",
+      "--soft",
+      "HEAD~1",
+    ]);
+    expect(buildCliArgv("git", "stash", { command: "push", message: "wip" })).toEqual([
+      "stash",
+      "push",
+      "-m",
+      "wip",
+    ]);
+    expect(buildCliArgv("git", "tag", { name: "v1.0.0", message: "release" })).toEqual([
+      "tag",
+      "-a",
+      "v1.0.0",
+      "-m",
+      "release",
     ]);
     expect(buildCliArgv("gh", "issueView", { number: 13, repo: "owner/repo" })).toEqual([
       "issue",
@@ -212,6 +293,25 @@ describe("cli command capabilities", () => {
       "--json",
       "number,title,state,url,author,createdAt,updatedAt,labels,assignees,comments,headRefName,baseRefName,isDraft",
     ]);
+    expect(buildCliArgv("gh", "prDiff", { number: 7, patch: true })).toEqual([
+      "pr",
+      "diff",
+      "7",
+      "--patch",
+    ]);
+    expect(buildCliArgv("gh", "prChecks", { number: 7 })).toEqual([
+      "pr",
+      "checks",
+      "7",
+      "--json",
+      "name,state,conclusion,link,startedAt,completedAt,workflow",
+    ]);
+    expect(buildCliArgv("gh", "prStatus", { json: ["currentBranch"] })).toEqual([
+      "pr",
+      "status",
+      "--json",
+      "currentBranch",
+    ]);
     expect(
       buildCliArgv("rg", "search", {
         pattern: "TODO",
@@ -239,6 +339,11 @@ describe("cli command capabilities", () => {
       "-a",
       "-l",
       "src",
+    ]);
+    expect(buildCliArgv("vitest", "run", { paths: ["src/cli.test.ts"], update: true })).toEqual([
+      "run",
+      "src/cli.test.ts",
+      "--update",
     ]);
   });
 

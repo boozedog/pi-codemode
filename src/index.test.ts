@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 type TestConfig = {
-  mode: "off" | "safe" | "yolo";
+  mode: "off" | "on" | "yolo";
   executor: { type: "quickjs"; timeoutMs: number };
 };
 
@@ -50,7 +50,7 @@ function createPiMock() {
     registerCommand: vi.fn((name: string, command: { handler: Handler }) =>
       commands.set(name, command),
     ),
-    getActiveTools: vi.fn(() => ["read", "write"]),
+    getActiveTools: vi.fn(() => ["read", "write", "replace_in_file", "apply_patch", "bash"]),
     getAllTools: vi.fn(() => [
       { name: "read", description: "Read files" },
       { name: "execute_tools", description: "Run codemode" },
@@ -110,15 +110,22 @@ describe("codemodeExtension", () => {
     };
 
     expect(pi.getActiveTools).toHaveBeenCalled();
-    expect(pi.setActiveTools).toHaveBeenCalledWith(["execute_tools", "bash"]);
+    expect(pi.setActiveTools).toHaveBeenCalledWith([
+      "read",
+      "write",
+      "replace_in_file",
+      "apply_patch",
+      "execute_tools",
+      "bash",
+    ]);
     expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode yolo mode enabled", "info");
     expect(prompt.systemPrompt).toContain("## Code Mode (yolo)");
     expect(prompt.systemPrompt).toContain("native bash is available");
   });
 
-  test("safe mode activates execute_tools only and prompts accordingly", async () => {
+  test("on mode activates codemode plus non-bash tools and prompts accordingly", async () => {
     loadConfig.mockReturnValue({
-      mode: "safe",
+      mode: "on",
       executor: { type: "quickjs", timeoutMs: 1234 },
     });
     const { default: codemodeExtension } = await import("./index.js");
@@ -130,9 +137,38 @@ describe("codemodeExtension", () => {
       systemPrompt: string;
     };
 
-    expect(pi.setActiveTools).toHaveBeenCalledWith(["execute_tools"]);
-    expect(prompt.systemPrompt).toContain("## Code Mode (safe)");
-    expect(prompt.systemPrompt).toContain("No native bash tool is exposed");
+    expect(pi.setActiveTools).toHaveBeenCalledWith([
+      "read",
+      "write",
+      "replace_in_file",
+      "apply_patch",
+      "execute_tools",
+    ]);
+    expect(prompt.systemPrompt).toContain("## Code Mode (on)");
+    expect(prompt.systemPrompt).toContain("native bash tool is not exposed");
+  });
+
+  test("on mode replaces native edit with codemode file edit tools", async () => {
+    loadConfig.mockReturnValue({
+      mode: "on",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    });
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, ctx } = createPiMock();
+    pi.getActiveTools.mockReturnValue(["read", "write", "edit", "bash"]);
+    codemodeExtension(pi as never);
+
+    await handlers.get("session_start")?.({}, ctx);
+
+    expect(pi.registerTool).toHaveBeenCalledWith(expect.objectContaining({ name: "replace_in_file" }));
+    expect(pi.registerTool).toHaveBeenCalledWith(expect.objectContaining({ name: "apply_patch" }));
+    expect(pi.setActiveTools).toHaveBeenCalledWith([
+      "read",
+      "write",
+      "replace_in_file",
+      "apply_patch",
+      "execute_tools",
+    ]);
   });
 
   test("off mode leaves native tools active and prompt guidance native", async () => {
@@ -165,9 +201,15 @@ describe("codemodeExtension", () => {
 
     await handlers.get("session_start")?.({}, ctx);
 
-    expect(pi.setActiveTools).toHaveBeenCalledWith(["execute_tools"]);
+    expect(pi.setActiveTools).toHaveBeenCalledWith([
+      "read",
+      "write",
+      "replace_in_file",
+      "apply_patch",
+      "execute_tools",
+    ]);
     expect(ctx.ui.notify).toHaveBeenCalledWith(
-      "Codemode yolo requested but native bash is unavailable; using safe mode tools",
+      "Codemode yolo requested but native bash is unavailable; using normal codemode tools",
       "warning",
     );
   });
@@ -184,20 +226,45 @@ describe("codemodeExtension", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode off — normal Pi tools active", "info");
   });
 
-  test("/codemode supports explicit modes and bare off-to-yolo toggle", async () => {
+  test("/codemode supports explicit modes and bare off-to-on toggle", async () => {
     const { default: codemodeExtension } = await import("./index.js");
     const { pi, handlers, commands, ctx } = createPiMock();
     codemodeExtension(pi as never);
     await handlers.get("session_start")?.({}, ctx);
 
-    await commands.get("codemode")?.handler(["safe"], ctx);
+    await commands.get("codemode")?.handler(["on"], ctx);
     await commands.get("codemode")?.handler(["off"], ctx);
     await commands.get("codemode")?.handler([], ctx);
 
-    expect(pi.setActiveTools).toHaveBeenNthCalledWith(1, ["execute_tools", "bash"]);
-    expect(pi.setActiveTools).toHaveBeenNthCalledWith(2, ["execute_tools"]);
-    expect(pi.setActiveTools).toHaveBeenNthCalledWith(3, ["read", "write"]);
-    expect(pi.setActiveTools).toHaveBeenNthCalledWith(4, ["execute_tools", "bash"]);
+    expect(pi.setActiveTools).toHaveBeenNthCalledWith(1, [
+      "read",
+      "write",
+      "replace_in_file",
+      "apply_patch",
+      "execute_tools",
+      "bash",
+    ]);
+    expect(pi.setActiveTools).toHaveBeenNthCalledWith(2, [
+      "read",
+      "write",
+      "replace_in_file",
+      "apply_patch",
+      "execute_tools",
+    ]);
+    expect(pi.setActiveTools).toHaveBeenNthCalledWith(3, [
+      "read",
+      "write",
+      "replace_in_file",
+      "apply_patch",
+      "bash",
+    ]);
+    expect(pi.setActiveTools).toHaveBeenNthCalledWith(4, [
+      "read",
+      "write",
+      "replace_in_file",
+      "apply_patch",
+      "execute_tools",
+    ]);
   });
 
   test("session_shutdown closes MCP client", async () => {

@@ -64,7 +64,6 @@ describe("package metadata", () => {
         "@mariozechner/pi-agent-core": "*",
         "@mariozechner/pi-coding-agent": "*",
         "@mariozechner/pi-tui": "*",
-        "@sinclair/typebox": "*",
       }),
     );
   });

@@ -6,7 +6,7 @@
 // This is a new implementation based on Cloudflare Codemode patterns,
 // adapted for Pi's native tool system with QuickJS sandboxing.
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@mariozechner/pi-coding-agent";
 import { initTypeChecker } from "./type-checker.js";
 import { buildSearchIndex, type McpServerInfo } from "./search.js";
 import {
@@ -20,6 +20,7 @@ import { createMcpClient, type McpClient } from "./mcp-client.js";
 import { createToolBindings } from "./tool-bindings.js";
 import { loadConfig, type CodemodeConfig, type CodemodeMode } from "./config.js";
 import { initShell } from "./shell.js";
+import { createFileTools } from "./file-tools.js";
 
 export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Configuration ---
@@ -53,7 +54,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`Codemode: config load failed: ${message}`);
-    config = { mode: "yolo", executor: { type: "quickjs", timeoutMs: 120_000 } };
+    config = { mode: "on", executor: { type: "quickjs", timeoutMs: 120_000 } };
   }
 
   // --- Initialize shell integration ---
@@ -106,7 +107,11 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     });
   }
 
-  // --- Register execute_tools tool ---
+  // --- Register codemode tools ---
+
+  for (const tool of createTopLevelFileTools(process.cwd())) {
+    pi.registerTool(tool);
+  }
 
   const executeTool = createExecuteTool({
     typeDefs: typeCheckerTypeDefs,
@@ -158,14 +163,14 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Toggle command ---
 
   pi.registerCommand("codemode", {
-    description: "Set code mode: yolo, safe, off (bare toggles off <-> yolo)",
+    description: "Set code mode: on, yolo, off (bare toggles off <-> on)",
     handler: async (args: string[], ctx: ExtensionContext) => {
       const requested = args[0] as CodemodeMode | undefined;
-      if (requested && !["off", "safe", "yolo"].includes(requested)) {
-        ctx.ui.notify("Usage: /codemode [yolo|safe|off]", "warning");
+      if (requested && !["off", "on", "yolo"].includes(requested)) {
+        ctx.ui.notify("Usage: /codemode [on|yolo|off]", "warning");
         return;
       }
-      applyMode(requested ?? (currentMode === "off" ? "yolo" : "off"), ctx);
+      applyMode(requested ?? (currentMode === "off" ? "on" : "off"), ctx);
     },
   });
 
@@ -178,18 +183,33 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       return;
     }
 
-    const tools =
-      mode === "yolo" && hasNativeBash() ? ["execute_tools", "bash"] : ["execute_tools"];
+    const tools = codemodeTools(mode);
     pi.setActiveTools(tools);
     currentMode = mode;
     if (mode === "yolo" && !tools.includes("bash")) {
       ctx.ui.notify(
-        "Codemode yolo requested but native bash is unavailable; using safe mode tools",
+        "Codemode yolo requested but native bash is unavailable; using normal codemode tools",
         "warning",
       );
       return;
     }
     ctx.ui.notify(`Codemode ${mode} mode enabled`, "info");
+  }
+
+  function codemodeTools(mode: Exclude<CodemodeMode, "off">) {
+    const tools = originalTools.filter(
+      (tool) =>
+        tool !== "bash" &&
+        tool !== "execute_tools" &&
+        tool !== "edit" &&
+        tool !== "replace_in_file" &&
+        tool !== "apply_patch",
+    );
+    tools.push("replace_in_file", "apply_patch", "execute_tools");
+    if (mode === "yolo" && hasNativeBash()) {
+      tools.push("bash");
+    }
+    return tools;
   }
 
   function hasNativeBash() {
@@ -210,6 +230,60 @@ interface ExtensionContext {
   };
 }
 
+function createTopLevelFileTools(projectRoot: string): ToolDefinition[] {
+  const fileTools = createFileTools({ projectRoot });
+  const textResult = (text: string) => ({ content: [{ type: "text", text }] });
+
+  return [
+    {
+      name: "replace_in_file",
+      label: "Replace in File",
+      description:
+        "Replace text in a file using exact oldText/newText edits. Every oldText must match exactly once and edits must not overlap.",
+      parameters: objectSchema({
+        path: stringSchema(),
+        edits: arraySchema(
+          objectSchema({
+            oldText: stringSchema(),
+            newText: stringSchema(),
+          }),
+        ),
+      }),
+      async execute(_toolCallId, params) {
+        return textResult(fileTools.replace_in_file(params as Parameters<typeof fileTools.replace_in_file>[0]));
+      },
+    },
+    {
+      name: "apply_patch",
+      label: "Apply Patch",
+      description: "Apply a text-only unified diff safely inside the project root.",
+      parameters: objectSchema({
+        patch: stringSchema(),
+      }),
+      async execute(_toolCallId, params) {
+        return textResult(fileTools.apply_patch(params as Parameters<typeof fileTools.apply_patch>[0]));
+      },
+    },
+  ];
+}
+
+function stringSchema() {
+  return { type: "string" } as const;
+}
+
+function arraySchema(items: unknown) {
+  return { type: "array", items } as const;
+}
+
+function objectSchema(properties: Record<string, unknown>) {
+  return {
+    type: "object",
+    properties,
+    required: Object.keys(properties),
+    additionalProperties: false,
+  } as const;
+}
+
 /**
  * Generate the system prompt addition for codemode.
  */
@@ -221,7 +295,7 @@ function generateSystemPromptAddition(
   const modeGuidance =
     mode === "yolo"
       ? "In yolo mode, native bash is available and has broader host access. Prefer codemode for structured tool use and use bash for shell-heavy one-offs."
-      : "In safe mode, use codemode-only workflows. No native bash tool is exposed.";
+      : "In normal codemode, use codemode workflows and top-level non-bash tools. The native bash tool is not exposed.";
   return `\
 ## Code Mode (${mode})
 

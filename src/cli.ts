@@ -6,7 +6,9 @@ import { executeJustBash, type ShellResult } from "./shell.js";
 import type { CliConfig, CliOperationConfig, CliToolConfig } from "./config.js";
 import { CLI_OPERATIONS, getCliOperationDefinition } from "./cli-operations.js";
 
-export interface CommandResult extends ShellResult {}
+export interface CommandResult extends ShellResult {
+  json?: unknown;
+}
 
 export function createCliBindings(
   config: CliConfig | undefined,
@@ -142,10 +144,12 @@ function executeHost(
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      const truncatedStdout = truncateHostOutput(stdout);
       resolve({
-        stdout: truncateHostOutput(stdout),
+        stdout: truncatedStdout,
         stderr: truncateHostOutput(stderr),
         exitCode: code ?? 0,
+        ...parsedJsonOutput(truncatedStdout),
       });
     });
   });
@@ -212,4 +216,14 @@ function appendBounded(current: string, chunk: string): string {
 function truncateHostOutput(output: string): string {
   if (output.length <= HOST_MAX_OUTPUT_BYTES) return output;
   return `${output.slice(-HOST_MAX_OUTPUT_BYTES)}\n[Output truncated, showing last 50 KiB.]`;
+}
+
+function parsedJsonOutput(stdout: string): { json?: unknown } {
+  const trimmed = stdout.trim();
+  if (!trimmed || trimmed.includes("[Output truncated")) return {};
+  try {
+    return { json: JSON.parse(trimmed) as unknown };
+  } catch {
+    return {};
+  }
 }

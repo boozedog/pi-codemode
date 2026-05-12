@@ -242,7 +242,7 @@ function schemaToType(schema: JSONSchema7Definition | undefined, required: strin
  */
 export function generateCliTypeDefs(config?: CliConfig): string {
   const parts = [
-    "interface CommandResult { stdout: string; stderr: string; exitCode: number; stdoutFile?: string; stderrFile?: string; }",
+    "interface CommandResult { stdout: string; stderr: string; exitCode: number; stdoutFile?: string; stderrFile?: string; json?: unknown; }",
     "interface CliTools {",
   ];
   for (const [tool, toolConfig] of Object.entries(config ?? {})) {
