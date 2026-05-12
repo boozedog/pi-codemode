@@ -172,6 +172,58 @@ describe("file tools", () => {
         }),
       ).toThrow("Path outside project");
     });
+
+    it("accepts documented Begin Patch update format", () => {
+      writeFileSync(join(projectDir, "test.txt"), "line1\nline2\nline3\n");
+
+      const result = tools.apply_patch({
+        patch: `*** Begin Patch
+*** Update File: test.txt
+@@
+ line1
+-line2
++changed
+ line3
+*** End Patch
+`,
+      });
+
+      expect(result).toContain("Applied patch to 1 file");
+      expect(result).toContain("--- a/test.txt");
+      expect(result).toContain("+++ b/test.txt");
+      expect(result).toContain("-line2");
+      expect(result).toContain("+changed");
+      expect(readFileSync(join(projectDir, "test.txt"), "utf-8")).toBe("line1\nchanged\nline3\n");
+    });
+
+    it("returns a visible diff for replace_in_file results", () => {
+      writeFileSync(join(projectDir, "test.txt"), "hello world\n");
+
+      const result = tools.replace_in_file({
+        path: "test.txt",
+        edits: [{ oldText: "world", newText: "universe" }],
+      });
+
+      expect(result).toContain("Replaced 1 occurrence in test.txt");
+      expect(result).toContain("--- a/test.txt");
+      expect(result).toContain("+++ b/test.txt");
+      expect(result).toContain("-hello world");
+      expect(result).toContain("+hello universe");
+    });
+
+    it("keeps visible diffs focused around changed lines", () => {
+      writeFileSync(join(projectDir, "test.txt"), "keep1\nkeep2\nold\nkeep3\nkeep4\nkeep5\n");
+
+      const result = tools.replace_in_file({
+        path: "test.txt",
+        edits: [{ oldText: "old", newText: "new" }],
+      });
+
+      expect(result).toContain(" keep2");
+      expect(result).toContain("-old");
+      expect(result).toContain("+new");
+      expect(result).not.toContain(" keep5");
+    });
   });
 
   describe("replace_in_file", () => {

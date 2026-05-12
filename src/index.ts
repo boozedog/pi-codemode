@@ -7,6 +7,7 @@
 // adapted for Pi's native tool system with QuickJS sandboxing.
 
 import type { ExtensionAPI, ToolDefinition } from "@mariozechner/pi-coding-agent";
+import { Text } from "@mariozechner/pi-tui";
 import { initTypeChecker } from "./type-checker.js";
 import { buildSearchIndex, type McpServerInfo } from "./search.js";
 import {
@@ -255,6 +256,7 @@ function createTopLevelFileTools(projectRoot: string): ToolDefinition[] {
       async execute(_toolCallId, params) {
         return textResult(fileTools.replace_in_file(params as Parameters<typeof fileTools.replace_in_file>[0]));
       },
+      renderResult: renderFileToolResult,
     },
     {
       name: "apply_patch",
@@ -266,8 +268,51 @@ function createTopLevelFileTools(projectRoot: string): ToolDefinition[] {
       async execute(_toolCallId, params) {
         return textResult(fileTools.apply_patch(params as Parameters<typeof fileTools.apply_patch>[0]));
       },
+      renderCall(args: unknown, theme: unknown) {
+        const diffTheme = theme as DiffTheme;
+        const patch = typeof args === "object" && args && "patch" in args
+          ? String((args as { patch?: unknown }).patch ?? "")
+          : "";
+        return new Text(
+          diffTheme.fg("toolTitle", diffTheme.bold("apply_patch")) +
+            "\n" +
+            renderDiffText(patch, diffTheme),
+          0,
+          0,
+        );
+      },
+      renderResult: renderFileToolResult,
     },
   ];
+}
+
+interface DiffTheme {
+  fg(color: string, text: string): string;
+  bold(text: string): string;
+  success?: (text: string) => string;
+  error?: (text: string) => string;
+}
+
+function renderFileToolResult(result: unknown, _options: unknown, theme: unknown) {
+  const diffTheme = theme as DiffTheme;
+  const fileResult = result as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+  const text = fileResult.content?.[0]?.text ?? "";
+  const marker = fileResult.isError
+    ? (diffTheme.error?.("✗ ") ?? "✗ ")
+    : (diffTheme.success?.("✓ ") ?? "✓ ");
+  return new Text(marker + renderDiffText(text, diffTheme), 0, 0);
+}
+
+function renderDiffText(text: string, theme: DiffTheme): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("+")) return theme.fg("toolDiffAdded", line);
+      if (line.startsWith("-")) return theme.fg("toolDiffRemoved", line);
+      if (line.startsWith("@@") || line.startsWith(" ")) return theme.fg("toolDiffContext", line);
+      return line;
+    })
+    .join("\n");
 }
 
 function stringSchema() {

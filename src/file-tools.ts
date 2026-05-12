@@ -118,6 +118,8 @@ export function createFileTools(options: FileToolsOptions) {
       // Sort by position (descending) so replacements don't affect earlier indices
       editPositions.sort((a, b) => b.start - a.start);
 
+      const original = content;
+
       // Apply edits
       for (const edit of editPositions) {
         content = content.slice(0, edit.start) + edit.newText + content.slice(edit.end);
@@ -125,7 +127,7 @@ export function createFileTools(options: FileToolsOptions) {
 
       writeFileSync(fullPath, content, "utf-8");
 
-      return `Replaced ${params.edits.length} occurrence${params.edits.length === 1 ? "" : "s"} in ${params.path}`;
+      return `Replaced ${params.edits.length} occurrence${params.edits.length === 1 ? "" : "s"} in ${params.path}\n${createUnifiedDiff(params.path, original, content)}`;
     },
   };
 }
@@ -192,9 +194,10 @@ interface ParsedHunk {
 }
 
 function applyUnifiedPatch(patch: string, projectRoot: string): string {
-  const files = parseUnifiedPatch(patch);
+  const files = parsePatch(patch);
   if (files.length === 0) throw new Error("No file patches found in unified diff");
 
+  const diffs: string[] = [];
   for (const file of files) {
     const fullPath = validateAndResolvePath(file.path, projectRoot);
     const original = existsSync(fullPath) ? readFileSync(fullPath, "utf-8") : "";
@@ -202,9 +205,47 @@ function applyUnifiedPatch(patch: string, projectRoot: string): string {
     const dir = dirname(fullPath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     writeFileSync(fullPath, updated, "utf-8");
+    diffs.push(createUnifiedDiff(file.path, original, updated));
   }
 
-  return `Applied patch to ${files.length} file${files.length === 1 ? "" : "s"}`;
+  return `Applied patch to ${files.length} file${files.length === 1 ? "" : "s"}\n${diffs.join("\n")}`;
+}
+
+function parsePatch(patch: string): ParsedFilePatch[] {
+  return patch.trimStart().startsWith("*** Begin Patch")
+    ? parseBeginPatch(patch)
+    : parseUnifiedPatch(patch);
+}
+
+function parseBeginPatch(patch: string): ParsedFilePatch[] {
+  const lines = patch.split("\n");
+  const files: ParsedFilePatch[] = [];
+  let current: ParsedFilePatch | undefined;
+  let currentHunk: ParsedHunk | undefined;
+
+  for (const line of lines) {
+    if (line.startsWith("*** Update File: ")) {
+      current = { path: line.slice("*** Update File: ".length).trim(), hunks: [] };
+      files.push(current);
+      currentHunk = undefined;
+      continue;
+    }
+    if (!current) continue;
+    if (line.startsWith("@@")) {
+      currentHunk = { oldStart: 0, oldCount: 0, lines: [] };
+      current.hunks.push(currentHunk);
+      continue;
+    }
+    if (line.startsWith("*** ")) {
+      currentHunk = undefined;
+      continue;
+    }
+    if (currentHunk && (line.startsWith(" ") || line.startsWith("-") || line.startsWith("+"))) {
+      currentHunk.lines.push(line);
+    }
+  }
+
+  return files;
 }
 
 function parseUnifiedPatch(patch: string): ParsedFilePatch[] {
@@ -264,7 +305,9 @@ function applyFilePatch(original: string, patch: ParsedFilePatch): string {
   let cursor = 0;
 
   for (const hunk of patch.hunks) {
-    const start = hunk.oldStart === 0 ? 0 : hunk.oldStart - 1;
+    const start = hunk.oldStart === 0
+      ? findFuzzyHunkStart(originalLines, hunk.lines, cursor)
+      : hunk.oldStart - 1;
     if (start < cursor)
       throw new Error(
         `Hunk failed for ${patch.path} at -${hunk.oldStart},${hunk.oldCount}: overlaps previous hunk`,
@@ -299,4 +342,70 @@ function applyFilePatch(original: string, patch: ParsedFilePatch): string {
   return hasTrailingNewline || patch.hunks.some((h) => h.lines.some((l) => l.startsWith("+")))
     ? next + "\n"
     : next;
+}
+
+function findFuzzyHunkStart(originalLines: string[], hunkLines: string[], cursor: number): number {
+  const expected = hunkLines
+    .filter((line) => line.startsWith(" ") || line.startsWith("-"))
+    .map((line) => line.slice(1));
+  if (expected.length === 0) return cursor;
+
+  for (let start = cursor; start <= originalLines.length - expected.length; start++) {
+    if (expected.every((line, offset) => originalLines[start + offset] === line)) {
+      return start;
+    }
+  }
+
+  throw new Error(`Hunk failed: could not find context ${JSON.stringify(expected.join("\\n"))}`);
+}
+
+function createUnifiedDiff(path: string, original: string, updated: string): string {
+  const originalLines = splitDiffLines(original);
+  const updatedLines = splitDiffLines(updated);
+  const context = 1;
+
+  let prefix = 0;
+  while (
+    prefix < originalLines.length &&
+    prefix < updatedLines.length &&
+    originalLines[prefix] === updatedLines[prefix]
+  ) {
+    prefix++;
+  }
+
+  let suffix = 0;
+  while (
+    suffix < originalLines.length - prefix &&
+    suffix < updatedLines.length - prefix &&
+    originalLines[originalLines.length - 1 - suffix] === updatedLines[updatedLines.length - 1 - suffix]
+  ) {
+    suffix++;
+  }
+
+  const oldStart = Math.max(0, prefix - context);
+  const newStart = Math.max(0, prefix - context);
+  const oldEnd = Math.min(originalLines.length, originalLines.length - suffix + context);
+  const newEnd = Math.min(updatedLines.length, updatedLines.length - suffix + context);
+  const removedStart = prefix;
+  const removedEnd = originalLines.length - suffix;
+  const addedStart = prefix;
+  const addedEnd = updatedLines.length - suffix;
+
+  const diffLines = [
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -${oldStart + 1},${oldEnd - oldStart} +${newStart + 1},${newEnd - newStart} @@`,
+  ];
+
+  for (let i = oldStart; i < removedStart; i++) diffLines.push(` ${originalLines[i]}`);
+  for (let i = removedStart; i < removedEnd; i++) diffLines.push(`-${originalLines[i]}`);
+  for (let i = addedStart; i < addedEnd; i++) diffLines.push(`+${updatedLines[i]}`);
+  for (let i = removedEnd; i < oldEnd; i++) diffLines.push(` ${originalLines[i]}`);
+
+  return diffLines.join("\n");
+}
+
+function splitDiffLines(content: string): string[] {
+  if (content === "") return [];
+  return content.replace(/\n$/, "").split("\n");
 }

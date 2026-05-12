@@ -177,6 +177,44 @@ describe("codemodeExtension", () => {
     ]);
   });
 
+  test("file edit tools render visible diffs in calls and results", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi } = createPiMock();
+    codemodeExtension(pi as never);
+    const applyPatch = pi.registerTool.mock.calls
+      .map((call) => call[0])
+      .find((tool) => tool.name === "apply_patch");
+    const colors: string[] = [];
+    const theme = {
+      fg: (color: string, text: string) => {
+        colors.push(color);
+        return text;
+      },
+      bold: (text: string) => text,
+      success: (text: string) => text,
+      error: (text: string) => text,
+    };
+
+    const call = applyPatch.renderCall(
+      { patch: "--- a/test.txt\n+++ b/test.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n" },
+      theme,
+      {},
+    );
+    const result = applyPatch.renderResult(
+      { content: [{ type: "text", text: "Applied patch to 1 file\n--- a/test.txt\n+++ b/test.txt\n@@ -1,1 +1,1 @@\n-old\n+new" }] },
+      { expanded: true, isPartial: false },
+      theme,
+      {},
+    );
+
+    expect(call.render(80).join("\n")).toContain("--- a/test.txt");
+    expect(result.render(80).join("\n")).toContain("-old");
+    expect(result.render(80).join("\n")).toContain("+new");
+    expect(colors).toContain("toolDiffRemoved");
+    expect(colors).toContain("toolDiffAdded");
+    expect(colors).toContain("toolDiffContext");
+  });
+
   test("off mode leaves native tools active and prompt guidance native", async () => {
     loadConfig.mockReturnValue({
       mode: "off",
