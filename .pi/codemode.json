@@ -31,7 +31,12 @@
         "prList",
         "prDiff",
         "prChecks",
-        "prStatus"
+        "prStatus",
+        "issueCreate",
+        "labelCreate",
+        "labelList",
+        "issueEdit",
+        "issueComment"
       ]
     },
     "rg": {

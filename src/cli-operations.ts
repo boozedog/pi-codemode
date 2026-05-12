@@ -112,6 +112,11 @@ const stashCommandSchema: JSONSchema7 = {
   enum: ["push", "pop", "apply", "list", "drop", "clear"],
   description: "Stash subcommand.",
 };
+const vitestReporterSchema: JSONSchema7 = {
+  type: "string",
+  enum: ["default", "verbose", "dot", "json", "junit"],
+  description: "Vitest reporter.",
+};
 
 export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinition>> = {
   git: {
@@ -340,6 +345,119 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         ...json(args, DEFAULT_GH_ISSUE_LIST_JSON),
       ],
     },
+    issueCreate: {
+      effect: "external",
+      description: "GitHub issue create. Create a GitHub issue.",
+      docs: "Create a GitHub issue with title, body, labels, assignees, and optional repo.",
+      params: ["title", "body", "label", "assignee", "repo", "github", "issue"],
+      inputSchema: obj(
+        {
+          title: s("Issue title."),
+          body: s("Issue body."),
+          label: sa("Labels to add."),
+          assignee: sa("Assignees to add."),
+          repo: s("Repository in OWNER/REPO format."),
+        },
+        ["title"],
+      ),
+      toArgv: (args) => [
+        "issue",
+        "create",
+        "--title",
+        requiredString(args, "title"),
+        ...stringFlag("--body", args.body, "body"),
+        ...stringArrayFlag("--label", args.label),
+        ...stringArrayFlag("--assignee", args.assignee),
+        ...repo(args),
+      ],
+    },
+    issueEdit: {
+      effect: "external",
+      description: "GitHub issue edit. Edit a GitHub issue.",
+      docs: "Edit a GitHub issue title, body, labels, assignees, and optional repo.",
+      params: ["number", "title", "body", "addLabel", "removeLabel", "addAssignee", "removeAssignee", "repo", "github", "issue"],
+      inputSchema: obj(
+        {
+          number: n("Issue number."),
+          title: s("Issue title."),
+          body: s("Issue body."),
+          addLabel: sa("Labels to add."),
+          removeLabel: sa("Labels to remove."),
+          addAssignee: sa("Assignees to add."),
+          removeAssignee: sa("Assignees to remove."),
+          repo: s("Repository in OWNER/REPO format."),
+        },
+        ["number"],
+      ),
+      toArgv: (args) => [
+        "issue",
+        "edit",
+        requiredNumber(args, "number"),
+        ...stringFlag("--title", args.title, "title"),
+        ...stringFlag("--body", args.body, "body"),
+        ...stringArrayFlag("--add-label", args.addLabel),
+        ...stringArrayFlag("--remove-label", args.removeLabel),
+        ...stringArrayFlag("--add-assignee", args.addAssignee),
+        ...stringArrayFlag("--remove-assignee", args.removeAssignee),
+        ...repo(args),
+      ],
+    },
+    issueComment: {
+      effect: "external",
+      description: "GitHub issue comment. Add a comment to a GitHub issue.",
+      docs: "Add a comment to a GitHub issue with body and optional repo.",
+      params: ["number", "body", "repo", "github", "issue", "comment"],
+      inputSchema: obj(
+        {
+          number: n("Issue number."),
+          body: s("Comment body."),
+          repo: s("Repository in OWNER/REPO format."),
+        },
+        ["number", "body"],
+      ),
+      toArgv: (args) => [
+        "issue",
+        "comment",
+        requiredNumber(args, "number"),
+        "--body",
+        requiredString(args, "body"),
+        ...repo(args),
+      ],
+    },
+    labelCreate: {
+      effect: "external",
+      description: "GitHub label create. Create a GitHub repository label.",
+      docs: "Create a GitHub repository label with name, description, color, and optional repo.",
+      params: ["name", "description", "color", "repo", "github", "label"],
+      inputSchema: obj(
+        {
+          name: s("Label name."),
+          description: s("Label description."),
+          color: s("Label color as a six-character hex code without #."),
+          repo: s("Repository in OWNER/REPO format."),
+        },
+        ["name"],
+      ),
+      toArgv: (args) => [
+        "label",
+        "create",
+        requiredString(args, "name"),
+        ...stringFlag("--description", args.description, "description"),
+        ...stringFlag("--color", args.color, "color"),
+        ...repo(args),
+      ],
+    },
+    labelList: {
+      effect: "external",
+      description: "GitHub label list. List GitHub repository labels.",
+      docs: "List GitHub repository labels with optional repo and limit.",
+      params: ["repo", "limit", "github", "label"],
+      inputSchema: obj({
+        repo: s("Repository in OWNER/REPO format."),
+        limit: n("Maximum number of labels to fetch."),
+      }),
+      toArgv: (args) => ["label", "list", ...repo(args), ...limit(args)],
+    },
     prView: {
       effect: "external",
       description: "GitHub pull request view. View a GitHub pull request by number.",
@@ -529,13 +647,19 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
     run: {
       effect: "write",
       description: "Vitest run. Run tests once, optionally updating snapshots.",
-      docs: "Run Vitest tests once, optionally updating snapshots.",
-      params: ["paths", "update"],
+      docs: "Run Vitest tests once, optionally updating snapshots. Pass reporter: 'json' for machine-readable output.",
+      params: ["paths", "update", "reporter"],
       inputSchema: obj({
         paths: sa("Test files or filters to run."),
         update: b("Update snapshots."),
+        reporter: vitestReporterSchema,
       }),
-      toArgv: (args) => ["run", ...stringArray(args.paths), ...(args.update ? ["--update"] : [])],
+      toArgv: (args) => [
+        "run",
+        ...stringArray(args.paths),
+        ...(args.update ? ["--update"] : []),
+        ...reporter(args.reporter),
+      ],
     },
   },
 };
@@ -636,4 +760,11 @@ function findType(value: unknown): string[] {
   if (value === "file") return ["-type", "f"];
   if (value === "directory") return ["-type", "d"];
   throw new Error("type must be one of file, directory");
+}
+function reporter(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (["default", "verbose", "dot", "json", "junit"].includes(String(value))) {
+    return [`--reporter=${String(value)}`];
+  }
+  throw new Error("reporter must be one of default, verbose, dot, json, junit");
 }

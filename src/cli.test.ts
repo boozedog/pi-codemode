@@ -313,6 +313,95 @@ describe("cli command capabilities", () => {
       "currentBranch",
     ]);
     expect(
+      buildCliArgv("gh", "issueCreate", {
+        title: "Track CLI discovery",
+        body: "Add dynamic discovery.",
+        label: ["enhancement", "security"],
+        assignee: ["@me"],
+        repo: "owner/repo",
+      }),
+    ).toEqual([
+      "issue",
+      "create",
+      "--title",
+      "Track CLI discovery",
+      "--body",
+      "Add dynamic discovery.",
+      "--label",
+      "enhancement",
+      "--label",
+      "security",
+      "--assignee",
+      "@me",
+      "--repo",
+      "owner/repo",
+    ]);
+    expect(
+      buildCliArgv("gh", "issueEdit", {
+        number: 21,
+        title: "Updated title",
+        body: "Updated body",
+        addLabel: ["enhancement"],
+        removeLabel: ["bug"],
+        repo: "owner/repo",
+      }),
+    ).toEqual([
+      "issue",
+      "edit",
+      "21",
+      "--title",
+      "Updated title",
+      "--body",
+      "Updated body",
+      "--add-label",
+      "enhancement",
+      "--remove-label",
+      "bug",
+      "--repo",
+      "owner/repo",
+    ]);
+    expect(
+      buildCliArgv("gh", "issueComment", {
+        number: 21,
+        body: "Depends on #22.",
+        repo: "owner/repo",
+      }),
+    ).toEqual([
+      "issue",
+      "comment",
+      "21",
+      "--body",
+      "Depends on #22.",
+      "--repo",
+      "owner/repo",
+    ]);
+    expect(
+      buildCliArgv("gh", "labelCreate", {
+        name: "security",
+        description: "Security-related work",
+        color: "d73a4a",
+        repo: "owner/repo",
+      }),
+    ).toEqual([
+      "label",
+      "create",
+      "security",
+      "--description",
+      "Security-related work",
+      "--color",
+      "d73a4a",
+      "--repo",
+      "owner/repo",
+    ]);
+    expect(buildCliArgv("gh", "labelList", { repo: "owner/repo", limit: 10 })).toEqual([
+      "label",
+      "list",
+      "--repo",
+      "owner/repo",
+      "--limit",
+      "10",
+    ]);
+    expect(
       buildCliArgv("rg", "search", {
         pattern: "TODO",
         glob: ["*.ts"],
@@ -344,6 +433,10 @@ describe("cli command capabilities", () => {
       "run",
       "src/cli.test.ts",
       "--update",
+    ]);
+    expect(buildCliArgv("vitest", "run", { reporter: "json" })).toEqual([
+      "run",
+      "--reporter=json",
     ]);
   });
 
