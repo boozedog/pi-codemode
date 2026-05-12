@@ -1,4 +1,4 @@
-// execute-tool.ts — The execute_tools tool definition.
+// execute-tool.ts — The codemode tool definition.
 //
 // This is the single tool that replaces most of Pi's built-in tools.
 // The LLM writes TypeScript code that calls tools as typed functions.
@@ -23,6 +23,8 @@ export interface ExecutionResult {
   elapsedMs: number;
 }
 
+type ResultFormat = "json" | "structured" | "text" | "plain" | "raw" | "auto";
+
 export interface ExecuteToolOptions {
   /** TypeScript type definitions for the tool API */
   typeDefs: string;
@@ -37,16 +39,16 @@ export interface ExecuteToolOptions {
 }
 
 /**
- * Create the execute_tools tool definition.
+ * Create the codemode tool definition.
  */
 export function createExecuteTool(options: ExecuteToolOptions): ToolDefinition {
   const { typeDefs, bindings, timeout, maxOutputSize, executor } = options;
 
   return {
-    name: "execute_tools",
-    label: "Execute Tools",
-    description: `Execute TypeScript code that calls tools as typed functions.
-Write code using top-level file tools and the codemode.* API. Your code is type-checked before execution.
+    name: "codemode",
+    label: "Codemode",
+    description: `Call this top-level codemode tool to execute TypeScript code that calls tools as typed functions.
+Write code using top-level file tools and the in-guest codemode.* API. Your code is type-checked before execution.
 
 Available tools in code:
 - read({ path }) → file content as string
@@ -70,13 +72,18 @@ Return the final value you want in the result. Prefer return over print for fina
           description:
             "Named string constants injected into the code as π.keyName. Use this for file content, templates, or any text that would be hard to quote inside JavaScript code. The strings only need standard JSON escaping — no JS string literal escaping required.",
         }),
+        resultFormat: stringSchema({
+          enum: ["json", "structured", "text", "plain", "raw", "auto"],
+          description:
+            "Optional output rendering preference. json/structured preserves structured JSON, text/plain strips ANSI and renders stdout-like results as plain text, raw preserves exact stdout/stderr, auto chooses a readable default.",
+        }),
       },
       ["code"],
     ),
 
     async execute(
       _toolCallId: string,
-      params: { code: string; strings?: Record<string, string> },
+      params: { code: string; strings?: Record<string, string>; resultFormat?: ResultFormat },
       signal: AbortSignal | undefined,
       onUpdate: (update: {
         content: Array<{ type: string; text: string }>;
@@ -123,22 +130,7 @@ Return the final value you want in the result. Prefer return over print for fina
         };
       }
 
-      // Format success
-      const parts: string[] = [];
-
-      if (result.logs.length > 0) {
-        parts.push(result.logs.join("\n"));
-      }
-
-      if (result.returnValue !== undefined) {
-        const formatted =
-          typeof result.returnValue === "string"
-            ? result.returnValue
-            : JSON.stringify(result.returnValue, null, 2);
-        parts.push(formatted);
-      }
-
-      const text = parts.join("\n\n") || "(no output)";
+      const text = formatExecutionResult(result, params.resultFormat);
 
       return {
         content: [{ type: "text" as const, text }],
@@ -155,7 +147,7 @@ Return the final value you want in the result. Prefer return over print for fina
       theme: { fg: (color: string, text: string) => string; bold: (text: string) => string },
       _context: unknown,
     ) {
-      let text = theme.fg("toolTitle", theme.bold("execute_tools"));
+      let text = theme.fg("toolTitle", theme.bold("codemode"));
       const code = args.code?.trim() || "(empty code)";
       const lines = code.split("\n");
       text += theme.fg("dim", `  ${lines.length} line${lines.length === 1 ? "" : "s"}`);
@@ -329,6 +321,70 @@ async function executeCode(
       elapsedMs: performance.now() - start,
     };
   }
+}
+
+function formatExecutionResult(result: ExecutionResult, format: ResultFormat = "structured"): string {
+  const parts: string[] = [];
+
+  if (result.logs.length > 0) {
+    parts.push(result.logs.join("\n"));
+  }
+
+  if (result.returnValue !== undefined) {
+    parts.push(formatReturnValue(result.returnValue, format));
+  }
+
+  return parts.join("\n\n") || "(no output)";
+}
+
+function formatReturnValue(value: unknown, format: ResultFormat): string {
+  if (format === "auto") {
+    return typeof value === "string" || isCommandResult(value)
+      ? formatReturnValue(value, "text")
+      : formatReturnValue(value, "structured");
+  }
+
+  if (format === "text" || format === "plain") {
+    return stripAnsi(stdoutLike(value) ?? stringifyStructured(value));
+  }
+
+  if (format === "raw") {
+    return stdoutLike(value) ?? (typeof value === "string" ? value : stringifyStructured(value));
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+  return stringifyStructured(value);
+}
+
+function stdoutLike(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (isCommandResult(value)) {
+    return `${value.stdout}${value.stderr}`;
+  }
+  return undefined;
+}
+
+function isCommandResult(value: unknown): value is { stdout: string; stderr: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "stdout" in value &&
+    typeof (value as { stdout?: unknown }).stdout === "string" &&
+    "stderr" in value &&
+    typeof (value as { stderr?: unknown }).stderr === "string"
+  );
+}
+
+function stringifyStructured(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
 function stringSchema(options: Record<string, unknown> = {}) {

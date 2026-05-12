@@ -1,6 +1,6 @@
 // index.ts — Pi Codemode extension entry point.
 //
-// Replaces Pi's tools with a single execute_tools tool that runs
+// Replaces Pi's tools with a single codemode tool that runs
 // TypeScript code against typed tool APIs.
 //
 // This is a new implementation based on Cloudflare Codemode patterns,
@@ -200,12 +200,15 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     const tools = originalTools.filter(
       (tool) =>
         tool !== "bash" &&
+        // Do not activate an older execute_tools registration if a previous/other extension provides one.
+        // This package intentionally registers only the Pi-facing codemode tool.
         tool !== "execute_tools" &&
+        tool !== "codemode" &&
         tool !== "edit" &&
         tool !== "replace_in_file" &&
         tool !== "apply_patch",
     );
-    tools.push("replace_in_file", "apply_patch", "execute_tools");
+    tools.push("replace_in_file", "apply_patch", "codemode");
     if (mode === "yolo" && hasNativeBash()) {
       tools.push("bash");
     }
@@ -315,7 +318,28 @@ ${builtinTypeDefs}
 ${mcpSummary ? "\n" + mcpSummary + "\n" : ""}
 ### How to use
 
-Call \`execute_tools\` with a TypeScript code body. Use top-level \`read\` for file inspection; file mutation helpers are intentionally unavailable inside guest code. Use top-level visible patch editing instead (see #21 for diff rendering). Use \`codemode.*\` for discovery and MCP tools. Prefer \`return\` for the final value. Use \`print()\` only for diagnostics or intermediate output you do not also return.
+Call the top-level \`codemode\` tool with a TypeScript code body. Use top-level \`read\` for file inspection; file mutation helpers are intentionally unavailable inside guest code. Use top-level visible patch editing instead (see #21 for diff rendering). Use the in-guest \`codemode.*\` object for discovery and MCP tools. Prefer \`return\` for the final value. Use \`print()\` only for diagnostics or intermediate output you do not also return.
+
+Top-level \`resultFormat\` controls rendering: use \`structured\`/\`json\` for parsed data, \`text\`/\`plain\` for agent-readable stdout-heavy command results with ANSI stripped, \`raw\` when exact stdout/stderr bytes or user-visible color/style are explicitly wanted, and \`auto\` to choose text for string/stdout-like values and structured JSON for objects. Prefer \`text\` for your own reasoning because some transcript/log surfaces show raw ANSI escapes literally; use \`raw\` only when the user wants color/styling or exact output.
+
+If the result you need is primarily stdout/stderr from one or more CLI calls, return a plain string and set \`resultFormat: "text"\` instead of returning an object containing \`stdout\` fields. Avoid rendering stdout inside JSON unless you need machine-readable fields such as \`exitCode\`, parsed \`json\`, or multiple named values.
+
+\`\`\`typescript
+const [status, diff] = await Promise.all([
+  cli.git.status({ short: true }),
+  cli.git.diff({ stat: true }),
+]);
+return status.stdout + "\n" + diff.stdout;
+\`\`\`
+
+Use structured output when the JSON shape matters:
+\`\`\`typescript
+return {
+  dirty: status.stdout.trim().length > 0,
+  statusExit: status.exitCode,
+  diffExit: diff.exitCode,
+};
+\`\`\`
 
 #### Parallel execution — use Promise.all for independent calls
 
@@ -422,7 +446,7 @@ ${generateEditGuidance()}`;
 function generateEditGuidance(): string {
   return `\
 ### Edit guidance
-- File mutation is patch-only and outside execute_tools guest code.
+- File mutation is patch-only and outside codemode guest code.
 - Use the top-level visible patch editing tool for unified diffs scoped to the project root.
 - Patch results should be rendered visibly in chat; see #21 for diff rendering.`;
 }

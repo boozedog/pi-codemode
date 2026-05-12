@@ -25,7 +25,7 @@ vi.mock("./shell.js", () => ({
 }));
 vi.mock("./execute-tool.js", () => ({
   createExecuteTool: vi.fn(() => ({
-    name: "execute_tools",
+    name: "codemode",
     description: "Execute TypeScript against codemode tools",
   })),
 }));
@@ -53,7 +53,7 @@ function createPiMock() {
     getActiveTools: vi.fn(() => ["read", "write", "replace_in_file", "apply_patch", "bash"]),
     getAllTools: vi.fn(() => [
       { name: "read", description: "Read files" },
-      { name: "execute_tools", description: "Run codemode" },
+      { name: "codemode", description: "Run codemode" },
       { name: "bash", description: "Run shell commands" },
     ]),
     setActiveTools: vi.fn((tools: string[]) => activeTools.push(tools)),
@@ -72,7 +72,7 @@ describe("codemodeExtension", () => {
     getServers.mockReturnValue([]);
   });
 
-  test("registers flag, execute_tools, lifecycle handlers, and toggle command", async () => {
+  test("registers flag, codemode tool, lifecycle handlers, and toggle command", async () => {
     const { default: codemodeExtension } = await import("./index.js");
     const { pi, handlers, commands } = createPiMock();
 
@@ -80,7 +80,7 @@ describe("codemodeExtension", () => {
 
     expect(pi.registerFlag).toHaveBeenCalledWith("no-codemode", expect.any(Object));
     expect(pi.registerTool).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "execute_tools" }),
+      expect.objectContaining({ name: "codemode" }),
     );
     expect([...handlers.keys()]).toEqual([
       "session_start",
@@ -99,7 +99,7 @@ describe("codemodeExtension", () => {
     expect(initShell).toHaveBeenCalledWith(expect.objectContaining({ projectRoot: process.cwd() }));
   });
 
-  test("session_start defaults to yolo mode with execute_tools and native bash", async () => {
+  test("session_start defaults to yolo mode with codemode and native bash", async () => {
     const { default: codemodeExtension } = await import("./index.js");
     const { pi, handlers, ctx } = createPiMock();
     codemodeExtension(pi as never);
@@ -115,7 +115,7 @@ describe("codemodeExtension", () => {
       "write",
       "replace_in_file",
       "apply_patch",
-      "execute_tools",
+      "codemode",
       "bash",
     ]);
     expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode yolo mode enabled", "info");
@@ -142,10 +142,16 @@ describe("codemodeExtension", () => {
       "write",
       "replace_in_file",
       "apply_patch",
-      "execute_tools",
+      "codemode",
     ]);
     expect(prompt.systemPrompt).toContain("## Code Mode (on)");
     expect(prompt.systemPrompt).toContain("native bash tool is not exposed");
+    expect(prompt.systemPrompt).toContain(
+      'If the result you need is primarily stdout/stderr from one or more CLI calls, return a plain string',
+    );
+    expect(prompt.systemPrompt).toContain(
+      "Prefer `text` for your own reasoning because some transcript/log surfaces show raw ANSI escapes literally",
+    );
   });
 
   test("on mode replaces native edit with codemode file edit tools", async () => {
@@ -167,7 +173,7 @@ describe("codemodeExtension", () => {
       "write",
       "replace_in_file",
       "apply_patch",
-      "execute_tools",
+      "codemode",
     ]);
   });
 
@@ -195,7 +201,7 @@ describe("codemodeExtension", () => {
     const { pi, handlers, ctx } = createPiMock();
     pi.getAllTools.mockReturnValue([
       { name: "read", description: "Read files" },
-      { name: "execute_tools", description: "Run codemode" },
+      { name: "codemode", description: "Run codemode" },
     ]);
     codemodeExtension(pi as never);
 
@@ -206,7 +212,7 @@ describe("codemodeExtension", () => {
       "write",
       "replace_in_file",
       "apply_patch",
-      "execute_tools",
+      "codemode",
     ]);
     expect(ctx.ui.notify).toHaveBeenCalledWith(
       "Codemode yolo requested but native bash is unavailable; using normal codemode tools",
@@ -241,7 +247,7 @@ describe("codemodeExtension", () => {
       "write",
       "replace_in_file",
       "apply_patch",
-      "execute_tools",
+      "codemode",
       "bash",
     ]);
     expect(pi.setActiveTools).toHaveBeenNthCalledWith(2, [
@@ -249,7 +255,7 @@ describe("codemodeExtension", () => {
       "write",
       "replace_in_file",
       "apply_patch",
-      "execute_tools",
+      "codemode",
     ]);
     expect(pi.setActiveTools).toHaveBeenNthCalledWith(3, [
       "read",
@@ -263,7 +269,7 @@ describe("codemodeExtension", () => {
       "write",
       "replace_in_file",
       "apply_patch",
-      "execute_tools",
+      "codemode",
     ]);
   });
 

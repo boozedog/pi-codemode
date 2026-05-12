@@ -55,6 +55,18 @@ const bindings = {
 } satisfies ToolBindings;
 
 describe("createExecuteTool executor selection", () => {
+  test("registers the Pi-facing tool as codemode", () => {
+    const tool = createExecuteTool({
+      typeDefs: "",
+      bindings,
+      timeout: 1_000,
+      executor: { kind: "quickjs" },
+    });
+
+    expect(tool.name).toBe("codemode");
+    expect(tool.description).toContain("Call this top-level codemode tool");
+  });
+
   test("renders tool call and result as TUI components", () => {
     const tool = createExecuteTool({
       typeDefs: "",
@@ -80,6 +92,7 @@ describe("createExecuteTool executor selection", () => {
       {},
     );
 
+    expect(call.render(80).join("\n")).toContain("codemode");
     expect(call.render(80).join("\n")).toContain("return 1;");
     expect(result.render(80).join("\n")).toContain("ok");
   });
@@ -103,9 +116,54 @@ describe("createExecuteTool executor selection", () => {
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("Configured executor 'deno' is unavailable");
   });
+
+  test("supports top-level text result formatting for command-like return values", async () => {
+    const tool = createExecuteTool({
+      typeDefs: "",
+      bindings,
+      timeout: 1_000,
+      executor: { kind: "quickjs" },
+    });
+
+    const result = await tool.execute(
+      "call-id",
+      {
+        code: 'return { stdout: "\\u001b[32mok\\u001b[0m\\n", stderr: "", exitCode: 0 };',
+        resultFormat: "text",
+      },
+      undefined,
+      () => undefined,
+      {} as never,
+    );
+
+    expect(result.isError).not.toBe(true);
+    expect(result.content[0].text).toBe("ok\n");
+  });
+
+  test("supports top-level raw result formatting", async () => {
+    const tool = createExecuteTool({
+      typeDefs: "",
+      bindings,
+      timeout: 1_000,
+      executor: { kind: "quickjs" },
+    });
+
+    const result = await tool.execute(
+      "call-id",
+      {
+        code: 'return { stdout: "\\u001b[32mok\\u001b[0m\\n", stderr: "", exitCode: 0 };',
+        resultFormat: "raw",
+      },
+      undefined,
+      () => undefined,
+      {} as never,
+    );
+
+    expect(result.content[0].text).toBe("\u001b[32mok\u001b[0m\n");
+  });
 });
 
-describe("execute_tools integration", () => {
+describe("codemode integration", () => {
   test("executes QuickJS code against real file read binding", async () => {
     const projectDir = mkdtempSync(join(tmpdir(), "codemode-execute-tool-"));
     try {

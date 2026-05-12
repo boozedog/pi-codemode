@@ -46,7 +46,7 @@ describe("built-in file tool type definitions", () => {
     expect(typeDefs).not.toContain("declare function write");
     expect(typeDefs).not.toContain("declare function replace_in_file");
     expect(typeDefs).not.toContain("declare function apply_patch");
-    expect(typeDefs).toContain("File mutation is intentionally not available inside execute_tools guest code");
+    expect(typeDefs).toContain("File mutation is intentionally not available inside codemode guest code");
     expect(typeDefs).toContain("Use the top-level visible patch editing tool instead");
   });
 });
