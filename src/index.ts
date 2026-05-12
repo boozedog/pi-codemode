@@ -315,9 +315,7 @@ ${builtinTypeDefs}
 ${mcpSummary ? "\n" + mcpSummary + "\n" : ""}
 ### How to use
 
-Call \`execute_tools\` with a TypeScript code body. Use top-level \`read\`, \`write\`,
-\`replace_in_file\`, and \`apply_patch\` for files; use \`codemode.*\` for discovery and MCP
-tools. Prefer \`return\` for the final value. Use \`print()\` only for diagnostics or intermediate output you do not also return.
+Call \`execute_tools\` with a TypeScript code body. Use top-level \`read\` for file inspection; file mutation helpers are intentionally unavailable inside guest code. Use top-level visible patch editing instead (see #21 for diff rendering). Use \`codemode.*\` for discovery and MCP tools. Prefer \`return\` for the final value. Use \`print()\` only for diagnostics or intermediate output you do not also return.
 
 #### Parallel execution — use Promise.all for independent calls
 
@@ -392,16 +390,10 @@ print(found);
 
 ### String Constants (π)
 
-When writing or editing files with content that's hard to quote in JavaScript (backticks,
-\`\${}\` expressions, nested quotes, code blocks), pass the content via the \`strings\`
-parameter instead of embedding it in your code. The strings are available as \`π.keyName\`.
+When passing hard-to-quote text into guest code (backticks, \`\${}\` expressions, nested quotes, code blocks), pass it via the \`strings\` parameter instead of embedding it in your code. The strings are available as \`π.keyName\`.
 
 \`\`\`typescript
-await write({ path: "run.sh", content: π.script });
-await replace_in_file({
-  path: "config.ts",
-  edits: [{ oldText: π.oldConfig, newText: π.newConfig }],
-});
+return { script: π.script };
 \`\`\`
 
 **When to use \`strings\`:** File content with backticks, template literals, shell scripts,
@@ -430,12 +422,7 @@ ${generateEditGuidance()}`;
 function generateEditGuidance(): string {
   return `\
 ### Edit guidance
-- Use \`replace_in_file\` for exact localized search/replace
-- When using \`replace_in_file\`, \`oldText\` must be an exact literal substring from the original file
-- Each \`oldText\` must match exactly once
-- Replacements are matched against the original file, not sequentially
-- Replacements must not overlap
-- If two changes are close together, merge them into one larger replacement
-- Use enough surrounding context to make \`oldText\` unique, but avoid huge unrelated blocks
-- Use \`apply_patch\` when a unified diff is clearer than exact replacements; it is text-only and scoped to the project root`;
+- File mutation is patch-only and outside execute_tools guest code.
+- Use the top-level visible patch editing tool for unified diffs scoped to the project root.
+- Patch results should be rendered visibly in chat; see #21 for diff rendering.`;
 }

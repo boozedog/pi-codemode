@@ -7,21 +7,18 @@ beforeAll(() => {
 });
 
 describe("built-in file tool type definitions", () => {
-  test("accept top-level Pi-shaped read, write, replace_in_file, and apply_patch", () => {
-    const errors = typeCheck(
-      `
-const text = await read({ path: "src/index.ts" });
-await write({ path: "out.txt", content: text });
-await replace_in_file({
-  path: "src/index.ts",
-  edits: [{ oldText: "before", newText: "after" }],
-});
-await apply_patch({ patch: "--- a/x\\n+++ b/x\\n@@ -1,1 +1,1 @@\\n-a\\n+b\\n" });
-`,
-      generateBuiltinTypeDefs(),
-    ).errors;
+  test("accepts top-level read but rejects mutating file helpers in guest code", () => {
+    const typeDefs = generateBuiltinTypeDefs();
 
-    expect(errors).toEqual([]);
+    expect(typeCheck(`const text = await read({ path: "src/index.ts" });`, typeDefs).errors).toEqual([]);
+    expect(typeCheck(`await write({ path: "out.txt", content: "x" });`, typeDefs).errors).not.toEqual([]);
+    expect(
+      typeCheck(
+        `await replace_in_file({ path: "src/index.ts", edits: [{ oldText: "before", newText: "after" }] });`,
+        typeDefs,
+      ).errors,
+    ).not.toEqual([]);
+    expect(typeCheck(`await apply_patch({ patch: "--- a/x\n+++ b/x\n" });`, typeDefs).errors).not.toEqual([]);
   });
 
   test("does not expose replace_in_file through codemode namespace", () => {
@@ -42,16 +39,15 @@ await apply_patch({ patch: "--- a/x\\n+++ b/x\\n@@ -1,1 +1,1 @@\\n-a\\n+b\\n" })
     expect(typeDefs).toContain("message: string;");
   });
 
-  test("documents when to use write and exact replace_in_file semantics", () => {
+  test("documents patch-only mutation outside guest code", () => {
     const typeDefs = generateBuiltinTypeDefs();
 
-    expect(typeDefs).toContain("Use for new files or intentional complete rewrites");
-    expect(typeDefs).toContain("Avoid full-file rewrites for small localized changes");
-    expect(typeDefs).toContain("Replace text in a file (replace_in_file)");
-    expect(typeDefs).toContain("Use for precise localized changes");
-    expect(typeDefs).toContain("declare function apply_patch");
-    expect(typeDefs).toContain("oldText must match exactly one unique, non-overlapping region");
-    expect(typeDefs).toContain("merge nearby edits into one larger replacement");
+    expect(typeDefs).toContain("declare function read");
+    expect(typeDefs).not.toContain("declare function write");
+    expect(typeDefs).not.toContain("declare function replace_in_file");
+    expect(typeDefs).not.toContain("declare function apply_patch");
+    expect(typeDefs).toContain("File mutation is intentionally not available inside execute_tools guest code");
+    expect(typeDefs).toContain("Use the top-level visible patch editing tool instead");
   });
 });
 

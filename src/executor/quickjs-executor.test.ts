@@ -18,17 +18,11 @@ describe("QuickJsExecutor", () => {
     expect(result.logs).toEqual(["hello quickjs"]);
   });
 
-  test("exposes top-level file tool host calls", async () => {
+  test("exposes read but not mutating file tool host calls", async () => {
     const calls: unknown[] = [];
     const executor = new QuickJsExecutor({ timeout: 5_000 });
-    const result = await executor.execute(
-      `
-			const text = await read({ path: "a.txt" });
-			await write({ path: "b.txt", content: text });
-			await replace_in_file({ path: "a.txt", edits: [{ oldText: "a", newText: "b" }] });
-			await apply_patch({ patch: "--- a/a.txt\\n+++ b/a.txt\\n@@ -1,1 +1,1 @@\\n-a\\n+b\\n" });
-			return codemode.callsDone({});
-		`,
+    const readResult = await executor.execute(
+      `return await read({ path: "a.txt" });`,
       [
         {
           name: "codemode",
@@ -37,30 +31,22 @@ describe("QuickJsExecutor", () => {
               calls.push(["read", args]);
               return "contents";
             },
-            write: async (args: unknown) => {
-              calls.push(["write", args]);
-            },
-            replace_in_file: async (args: unknown) => {
-              calls.push(["replace_in_file", args]);
-              return "edited";
-            },
-            apply_patch: async (args: unknown) => {
-              calls.push(["apply_patch", args]);
-              return "patched";
-            },
-            callsDone: async () => calls,
           },
         },
       ],
     );
 
-    expect(result.error).toBeUndefined();
-    expect(result.result).toEqual([
-      ["read", { path: "a.txt" }],
-      ["write", { path: "b.txt", content: "contents" }],
-      ["replace_in_file", { path: "a.txt", edits: [{ oldText: "a", newText: "b" }] }],
-      ["apply_patch", { patch: "--- a/a.txt\n+++ b/a.txt\n@@ -1,1 +1,1 @@\n-a\n+b\n" }],
-    ]);
+    expect(readResult.error).toBeUndefined();
+    expect(readResult.result).toBe("contents");
+    expect(calls).toEqual([["read", { path: "a.txt" }]]);
+
+    for (const name of ["write", "replace_in_file", "apply_patch"]) {
+      const result = await executor.execute(`return typeof globalThis["${name}"];`, [
+        { name: "codemode", fns: { [name]: async () => "mutated" } },
+      ]);
+      expect(result.error).toBeUndefined();
+      expect(result.result).toBe("undefined");
+    }
   });
 
   test("does not expose file tools through codemode namespace", async () => {

@@ -275,20 +275,7 @@ export function generateBuiltinTypeDefs(config?: { cli?: CliConfig }): string {
 
 /** Read a file. Use offset/limit for large files instead of reading more than needed. */
 declare function read(args: { path: string; offset?: number; limit?: number }): Promise<string>;
-/** Write an entire file. Use for new files or intentional complete rewrites. Avoid full-file rewrites for small localized changes because they cost more tokens and risk accidental deletion. */
-declare function write(args: { path: string; content: string }): Promise<void>;
-/** Replace text in a file (replace_in_file). Use for precise localized changes. Every oldText must match exactly one unique, non-overlapping region in the original file; edits are matched against the original file, not sequentially. Use enough surrounding context for uniqueness, and merge nearby edits into one larger replacement. */
-declare function replace_in_file(args: {
-  path: string;
-  edits: Array<{
-    /** Exact literal original text. Must match exactly once in the original file. */
-    oldText: string;
-    /** Replacement text. */
-    newText: string;
-  }>;
-}): Promise<string>;
-/** Apply a text-only unified diff inside the project root. Useful when producing a git-style patch is clearer than exact replacements; failed hunks return diagnostics. */
-declare function apply_patch(args: { patch: string }): Promise<string>;
+/** File mutation is intentionally not available inside execute_tools guest code. Use the top-level visible patch editing tool instead; see #21 for diff rendering. */
 
 declare const codemode: CodemodeTools & McpServerNamespaces;
 

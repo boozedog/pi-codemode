@@ -128,9 +128,6 @@ export class QuickJsExecutor implements CodeExecutor {
 					}
 				});
 				globalThis.read = function(args) { return globalThis.__hostCall('read', args ?? {}); };
-				globalThis.write = function(args) { return globalThis.__hostCall('write', args ?? {}); };
-				globalThis.replace_in_file = function(args) { return globalThis.__hostCall('replace_in_file', args ?? {}); };
-				globalThis.apply_patch = function(args) { return globalThis.__hostCall('apply_patch', args ?? {}); };
 				globalThis.cli = new Proxy({}, {
 					get(_target, tool) {
 						if (tool === 'then') return undefined;
@@ -237,8 +234,6 @@ export class QuickJsExecutor implements CodeExecutor {
       const cleanup = vm.evalCode(`
         globalThis.__hostCall = undefined;
         globalThis.read = undefined;
-        globalThis.write = undefined;
-        globalThis.replace_in_file = undefined;
         globalThis.codemode = undefined;
         globalThis.cli = undefined;
         globalThis.print = undefined;

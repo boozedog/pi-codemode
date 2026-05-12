@@ -134,9 +134,6 @@ function setupGlobals(userStrings: Record<string, string>): void {
   );
 
   (globalThis as any).read = (args?: unknown) => callTool("read", args);
-  (globalThis as any).write = (args?: unknown) => callTool("write", args);
-  (globalThis as any).replace_in_file = (args?: unknown) => callTool("replace_in_file", args);
-  (globalThis as any).apply_patch = (args?: unknown) => callTool("apply_patch", args);
 
   (globalThis as any).cli = new Proxy(
     {},

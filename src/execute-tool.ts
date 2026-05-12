@@ -50,9 +50,7 @@ Write code using top-level file tools and the codemode.* API. Your code is type-
 
 Available tools in code:
 - read({ path }) → file content as string
-- write({ path, content }) → void
-- replace_in_file({ path, edits: [{ oldText, newText }] }) → exact text replacement in a file
-- apply_patch({ patch }) → apply a unified diff inside the project root
+- File mutation helpers (write, replace_in_file, apply_patch) are intentionally unavailable inside guest code; use the top-level visible patch editing tool instead (see #21 for diff rendering).
 - codemode.search_tools({ query }) → discover available tools
 - codemode.describe_tools({ namespace, tool? }) → browse MCP tools
 - codemode.<namespace>.<tool>(args) → call MCP tools (e.g., codemode.github.search_issues())
@@ -66,7 +64,7 @@ Return the final value you want in the result. Prefer return over print for fina
       {
         code: stringSchema({
           description:
-            "TypeScript code body. Has access to read(), write(), replace_in_file(), apply_patch(), codemode.search_tools(), codemode.describe_tools(), codemode.<namespace>.<tool>() for MCP, print(), and π.keyName from strings parameter.",
+            "TypeScript code body. Has access to read(), codemode.search_tools(), codemode.describe_tools(), codemode.<namespace>.<tool>() for MCP, print(), and π.keyName from strings parameter. File mutation helpers are not available inside guest code; use top-level patch editing instead.",
         }),
         strings: recordSchema(stringSchema(), stringSchema(), {
           description:
