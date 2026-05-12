@@ -160,7 +160,7 @@ Codemode-specific MCP servers and typed CLI capabilities can also be configured 
   },
   "cli": {
     "git": { "backend": "host", "operations": ["status", "branch", "diff", "log", "show", "remote", "revParse", "add", "commit", "push", "pull", "switch", "checkout", "restore", "reset", "stash", "tag"] },
-    "gh": { "backend": "host", "operations": ["issueView", "issueList", "issueCreate", "issueEdit", "issueComment", "labelCreate", "labelList", "prView", "prList", "prDiff", "prChecks", "prStatus"] },
+    "gh": { "backend": "host", "operations": ["issueView", "issueList", "issueCreate", "issueEdit", "issueComment", "issueClose", "labelCreate", "labelList", "prView", "prList", "prDiff", "prChecks", "prStatus"] },
     "rg": { "backend": "host", "operations": ["search"] },
     "find": { "backend": "just-bash", "operations": ["files"] },
     "grep": { "backend": "just-bash", "operations": ["search"] },

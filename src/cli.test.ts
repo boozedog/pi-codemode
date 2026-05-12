@@ -375,6 +375,26 @@ describe("cli command capabilities", () => {
       "--repo",
       "owner/repo",
     ]);
+    expect(buildCliArgv("gh", "issueClose", { number: 22 })).toEqual([
+      "issue",
+      "close",
+      "22",
+    ]);
+    expect(
+      buildCliArgv("gh", "issueClose", {
+        number: 22,
+        comment: "Done in 0efa12b.",
+        repo: "owner/repo",
+      }),
+    ).toEqual([
+      "issue",
+      "close",
+      "22",
+      "--comment",
+      "Done in 0efa12b.",
+      "--repo",
+      "owner/repo",
+    ]);
     expect(
       buildCliArgv("gh", "labelCreate", {
         name: "security",

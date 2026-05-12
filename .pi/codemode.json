@@ -36,7 +36,8 @@
         "labelCreate",
         "labelList",
         "issueEdit",
-        "issueComment"
+        "issueComment",
+        "issueClose"
       ]
     },
     "rg": {

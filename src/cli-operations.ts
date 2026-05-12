@@ -97,6 +97,11 @@ const stateSchema: JSONSchema7 = {
   enum: ["open", "closed", "all"],
   description: "Issue or pull request state.",
 };
+const issueCloseStateReasonSchema: JSONSchema7 = {
+  type: "string",
+  enum: ["completed", "not planned"],
+  description: "Reason for closing the issue.",
+};
 const findTypeSchema: JSONSchema7 = {
   type: "string",
   enum: ["file", "directory"],
@@ -424,6 +429,29 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         ...repo(args),
       ],
     },
+    issueClose: {
+      effect: "external",
+      description: "GitHub issue close. Close a GitHub issue.",
+      docs: "Close a GitHub issue with optional repo, comment, and state reason.",
+      params: ["number", "repo", "comment", "stateReason", "github", "issue", "close"],
+      inputSchema: obj(
+        {
+          number: n("Issue number."),
+          repo: s("Repository in OWNER/REPO format."),
+          comment: s("Comment to add while closing the issue."),
+          stateReason: issueCloseStateReasonSchema,
+        },
+        ["number"],
+      ),
+      toArgv: (args) => [
+        "issue",
+        "close",
+        requiredNumber(args, "number"),
+        ...stringFlag("--comment", args.comment, "comment"),
+        ...issueCloseStateReason(args.stateReason),
+        ...repo(args),
+      ],
+    },
     labelCreate: {
       effect: "external",
       description: "GitHub label create. Create a GitHub repository label.",
@@ -743,6 +771,11 @@ function state(args: Record<string, unknown>): string[] {
   if (!["open", "closed", "all"].includes(String(args.state)))
     throw new Error("state must be one of open, closed, all");
   return ["--state", String(args.state)];
+}
+function issueCloseStateReason(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (["completed", "not planned"].includes(String(value))) return ["--reason", String(value)];
+  throw new Error("stateReason must be one of completed, not planned");
 }
 function limit(args: Record<string, unknown>): string[] {
   if (args.limit === undefined) return [];
