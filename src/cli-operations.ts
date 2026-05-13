@@ -853,6 +853,44 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       ],
     },
   },
+  vp: {
+    fmtCheck: {
+      effect: "write",
+      description: "Vite+ fmt check. Check formatting without writing changes.",
+      docs: "Check formatting with vp fmt --check. Options are forwarded to Oxfmt.",
+      params: ["paths", "ignorePath", "threads"],
+      inputSchema: obj({
+        paths: sa("Paths to check."),
+        ignorePath: s("Path to ignore file."),
+        threads: n("Number of threads to use."),
+      }),
+      toArgv: (args) => [
+        "fmt",
+        ...stringArray(args.paths),
+        "--check",
+        ...stringFlag("--ignore-path", args.ignorePath, "ignorePath"),
+        ...numberFlag("--threads", args.threads),
+      ],
+    },
+    fmtWrite: {
+      effect: "write",
+      description: "Vite+ fmt write. Format files in place.",
+      docs: "Format files in place with vp fmt --write. Options are forwarded to Oxfmt.",
+      params: ["paths", "ignorePath", "threads"],
+      inputSchema: obj({
+        paths: sa("Paths to format."),
+        ignorePath: s("Path to ignore file."),
+        threads: n("Number of threads to use."),
+      }),
+      toArgv: (args) => [
+        "fmt",
+        ...stringArray(args.paths),
+        "--write",
+        ...stringFlag("--ignore-path", args.ignorePath, "ignorePath"),
+        ...numberFlag("--threads", args.threads),
+      ],
+    },
+  },
 };
 
 export function getCliOperationDefinition(

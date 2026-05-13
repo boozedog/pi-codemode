@@ -445,6 +445,10 @@ describe("cli command capabilities", () => {
         paths: ["src"],
       }),
     ).toEqual(["--deny", "warnings", "--vitest-plugin", "src"]);
+    expect(buildCliArgv("vp", "fmtCheck", { paths: ["src"] })).toEqual(["fmt", "src", "--check"]);
+    expect(
+      buildCliArgv("vp", "fmtWrite", { paths: ["."], ignorePath: ".gitignore", threads: 4 }),
+    ).toEqual(["fmt", ".", "--write", "--ignore-path", ".gitignore", "--threads", "4"]);
   });
 
   test("validates runtime argument shapes", () => {

@@ -49,6 +49,30 @@ describe("npm script decomposition", () => {
     ]);
   });
 
+  test("decomposes explicit vp fmt modes into surfaced cli calls", () => {
+    expect(planNpmScript({ format: "vp fmt . --write" }, "format").calls).toEqual([
+      { tool: "vp", operation: "fmtWrite", args: { paths: ["."] } },
+    ]);
+    expect(
+      planNpmScript(
+        { "format:check": "vp fmt src --check --ignore-path .gitignore --threads 4" },
+        "format:check",
+      ).calls,
+    ).toEqual([
+      {
+        tool: "vp",
+        operation: "fmtCheck",
+        args: { paths: ["src"], ignorePath: ".gitignore", threads: 4 },
+      },
+    ]);
+  });
+
+  test("rejects ambiguous vp fmt without an explicit check or write mode", () => {
+    expect(() => planNpmScript({ format: "vp fmt" }, "format")).toThrow(
+      "vp fmt requires exactly one of --check or --write",
+    );
+  });
+
   test("fails loudly for denied commands with the script chain", () => {
     expect(() =>
       planNpmScript({ build: "npm run inner", inner: "node scripts/build.js" }, "build"),

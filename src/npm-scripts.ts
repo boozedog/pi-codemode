@@ -70,10 +70,50 @@ function decomposeCommand(
   if (command === "tsc") return [decomposeTsc(script, chain, argv)];
   if (command === "oxfmt") return [decomposeOxfmt(script, chain, argv)];
   if (command === "oxlint") return [decomposeOxlint(script, chain, argv)];
+  if (command === "vp") return [decomposeVp(script, chain, argv)];
   if (command === "vitest" && argv[1] === "run" && argv.length === 2) {
     return [{ tool: "vitest", operation: "run", args: {} }];
   }
   fail(script, chain, `unsupported command '${command}'`);
+}
+
+function decomposeVp(script: string, chain: string[], argv: string[]): NpmScriptCall {
+  if (argv[1] !== "fmt") fail(script, chain, `unsupported vp subcommand '${argv[1] ?? ""}'`);
+  return decomposeVpFmt(script, chain, argv.slice(2));
+}
+
+function decomposeVpFmt(script: string, chain: string[], args: string[]): NpmScriptCall {
+  const paths: string[] = [];
+  let mode: "check" | "write" | undefined;
+  let ignorePath: string | undefined;
+  let threads: number | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--check" || arg === "--write") {
+      if (mode) fail(script, chain, "vp fmt requires exactly one of --check or --write");
+      mode = arg === "--check" ? "check" : "write";
+    } else if (arg === "--ignore-path") {
+      ignorePath = args[++i];
+      if (!ignorePath) fail(script, chain, "vp fmt --ignore-path requires a path");
+    } else if (arg === "--threads") {
+      const value = Number(args[++i]);
+      if (!Number.isInteger(value) || value < 1) {
+        fail(script, chain, "vp fmt --threads requires a positive integer");
+      }
+      threads = value;
+    } else if (arg.startsWith("-")) {
+      fail(script, chain, `unsupported vp fmt argument: ${arg}`);
+    } else {
+      paths.push(arg);
+    }
+  }
+  if (!mode) fail(script, chain, "vp fmt requires exactly one of --check or --write");
+  const optionalArgs = {
+    ...(paths.length > 0 ? { paths } : {}),
+    ...(ignorePath ? { ignorePath } : {}),
+    ...(threads ? { threads } : {}),
+  };
+  return { tool: "vp", operation: mode === "check" ? "fmtCheck" : "fmtWrite", args: optionalArgs };
 }
 
 function decomposeOxfmt(script: string, chain: string[], argv: string[]): NpmScriptCall {

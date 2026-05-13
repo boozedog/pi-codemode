@@ -44,6 +44,10 @@
     "find": { "backend": "just-bash", "operations": ["files"] },
     "grep": { "backend": "just-bash", "operations": ["search"] },
     "ls": { "backend": "just-bash", "operations": ["list"] },
-    "vitest": { "backend": "host", "operations": ["run"] }
+    "vitest": { "backend": "host", "operations": ["run"] },
+    "tsc": { "backend": "host", "operations": ["build"] },
+    "oxfmt": { "backend": "host", "operations": ["check", "write"] },
+    "oxlint": { "backend": "host", "operations": ["run"] },
+    "vp": { "backend": "host", "operations": ["fmtCheck", "fmtWrite"] }
   }
 }

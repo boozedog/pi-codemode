@@ -75,6 +75,11 @@
       "backend": "host",
       "operations": ["run"],
       "command": "./node_modules/.bin/oxlint"
+    },
+    "vp": {
+      "backend": "host",
+      "operations": ["fmtCheck", "fmtWrite"],
+      "command": "vp"
     }
   }
 }
