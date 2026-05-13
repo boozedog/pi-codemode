@@ -44,7 +44,7 @@
     "check:clean-tree": "git diff --quiet && git diff --cached --quiet || (echo \"Working tree is dirty; commit or stash changes before publishing.\" && git status --short && exit 1)"
   },
   "dependencies": {
-    "just-bash": "^2.14.4",
+    "just-bash": "3.0.0",
     "minisearch": "^7.2.0",
     "pi-mcp-adapter": "2.5.4",
     "quickjs-emscripten": "^0.32.0",
