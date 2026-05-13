@@ -305,9 +305,10 @@ function applyFilePatch(original: string, patch: ParsedFilePatch): string {
   let cursor = 0;
 
   for (const hunk of patch.hunks) {
-    const start = hunk.oldStart === 0
-      ? findFuzzyHunkStart(originalLines, hunk.lines, cursor)
-      : hunk.oldStart - 1;
+    const start =
+      hunk.oldStart === 0
+        ? findFuzzyHunkStart(originalLines, hunk.lines, cursor)
+        : hunk.oldStart - 1;
     if (start < cursor)
       throw new Error(
         `Hunk failed for ${patch.path} at -${hunk.oldStart},${hunk.oldCount}: overlaps previous hunk`,
@@ -377,7 +378,8 @@ function createUnifiedDiff(path: string, original: string, updated: string): str
   while (
     suffix < originalLines.length - prefix &&
     suffix < updatedLines.length - prefix &&
-    originalLines[originalLines.length - 1 - suffix] === updatedLines[updatedLines.length - 1 - suffix]
+    originalLines[originalLines.length - 1 - suffix] ===
+      updatedLines[updatedLines.length - 1 - suffix]
   ) {
     suffix++;
   }

@@ -42,34 +42,39 @@
     },
     "rg": {
       "backend": "host",
-      "operations": [
-        "search"
-      ]
+      "operations": ["search"]
     },
     "find": {
       "backend": "just-bash",
-      "operations": [
-        "files"
-      ]
+      "operations": ["files"]
     },
     "grep": {
       "backend": "just-bash",
-      "operations": [
-        "search"
-      ]
+      "operations": ["search"]
     },
     "ls": {
       "backend": "just-bash",
-      "operations": [
-        "list"
-      ]
+      "operations": ["list"]
     },
     "vitest": {
       "backend": "host",
-      "operations": [
-        "run"
-      ],
+      "operations": ["run"],
       "command": "./node_modules/.bin/vitest"
+    },
+    "tsc": {
+      "backend": "host",
+      "operations": ["build"],
+      "command": "./node_modules/.bin/tsc"
+    },
+    "oxfmt": {
+      "backend": "host",
+      "operations": ["check", "write"],
+      "command": "./node_modules/.bin/oxfmt"
+    },
+    "oxlint": {
+      "backend": "host",
+      "operations": ["run"],
+      "command": "./node_modules/.bin/oxlint"
     }
   }
 }

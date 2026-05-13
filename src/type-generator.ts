@@ -119,6 +119,39 @@ const builtinToolDescriptors: Record<string, { description?: string; inputSchema
       required: ["query"],
     },
   },
+  plan_npm_script: {
+    description:
+      "Inspect package.json and decompose a safe npm script into visible cli.* calls without executing it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        script: {
+          type: "string",
+          description: "npm script name to plan, e.g. build or check.",
+        },
+      },
+      required: ["script"],
+    },
+  },
+  run_npm_script: {
+    description:
+      "Decompose a safe npm script into visible cli.* calls, then execute only those surfaced calls.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        script: {
+          type: "string",
+          description: "npm script name to run, e.g. build or check.",
+        },
+        verbose: {
+          type: "boolean",
+          description:
+            "Include stdout/stderr for successful steps. Failures always include output.",
+        },
+      },
+      required: ["script"],
+    },
+  },
   list_mcp_servers: {
     description: "List configured MCP server namespaces available under codemode.*.",
     inputSchema: {

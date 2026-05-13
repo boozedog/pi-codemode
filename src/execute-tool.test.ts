@@ -47,6 +47,8 @@ const bindings = {
   replace_in_file: async () => "",
   apply_patch: async () => "",
   search_tools: async () => "",
+  plan_npm_script: async () => "",
+  run_npm_script: async () => "",
   list_mcp_servers: async () => "",
   list_tools: async () => "",
   describe_tools: async () => "",
@@ -304,5 +306,4 @@ describe("codemode integration", () => {
       rmSync(projectDir, { recursive: true, force: true });
     }
   });
-
 });

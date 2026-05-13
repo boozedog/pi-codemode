@@ -21,20 +21,17 @@ describe("QuickJsExecutor", () => {
   test("exposes read but not mutating file tool host calls", async () => {
     const calls: unknown[] = [];
     const executor = new QuickJsExecutor({ timeout: 5_000 });
-    const readResult = await executor.execute(
-      `return await read({ path: "a.txt" });`,
-      [
-        {
-          name: "codemode",
-          fns: {
-            read: async (args: unknown) => {
-              calls.push(["read", args]);
-              return "contents";
-            },
+    const readResult = await executor.execute(`return await read({ path: "a.txt" });`, [
+      {
+        name: "codemode",
+        fns: {
+          read: async (args: unknown) => {
+            calls.push(["read", args]);
+            return "contents";
           },
         },
-      ],
-    );
+      },
+    ]);
 
     expect(readResult.error).toBeUndefined();
     expect(readResult.result).toBe("contents");

@@ -36,6 +36,8 @@ Generated code only receives explicit globals:
 - `codemode.list_mcp_servers()` lists configured MCP namespaces.
 - `codemode.list_tools({ namespace, offset?, limit? })` lists cached MCP tools with pagination.
 - `codemode.describe_tools({ namespace, tool? })` shows MCP namespace/tool details.
+- `codemode.plan_npm_script({ script })` decomposes a safe package script into visible `cli.*` calls without executing it.
+- `codemode.run_npm_script({ script, verbose? })` decomposes a safe package script, shows the plan, and executes only the surfaced `cli.*` calls.
 - `codemode.<namespace>.<tool>(args)` calls configured MCP tools.
 - `cli.<tool>.<operation>(args)` calls configured typed CLI capabilities.
 - `print(...args)` emits result output.
@@ -94,6 +96,54 @@ const hits = await cli.rg.search({ pattern: "TODO", paths: ["src"], lineNumber: 
 Each `cli` tool/operation must be allowlisted in config. Backends may be native host commands or `just-bash` commands. `just-bash` backend operations are explicitly limited to read-only operation metadata and must exist in the installed `just-bash` command set; discovery is used for validation only and never auto-exposes commands. `just-bash` still uses scoped mounts internally, typically `/workspace` mapped to the project root read/write and `/tmp` as in-memory temp space. Network and JS/Python runtimes remain disabled by default.
 
 Host command output is capped inline at 50 KiB per stream, with a truncation marker when exceeded. Non-zero command exits do not throw; inspect `exitCode`. Denied operations, missing executables, timeouts, and invalid runtime argument shapes throw clear CLI errors.
+
+### npm script decomposition
+
+Codemode treats npm scripts as recipes to inspect, not shell commands to execute. Generated code should not call `npm`, `npx`, `node`, `bash`, or other abstraction layers directly. Instead, use the codemode npm-script helpers:
+
+```ts
+return await codemode.plan_npm_script({ script: "build" });
+```
+
+For a package script such as:
+
+```json
+{
+  "scripts": {
+    "build": "tsc",
+    "check": "npm run format:check && npm run lint && npm run build && npm test",
+    "format:check": "oxfmt . --check",
+    "lint": "oxlint --deny warnings --vitest-plugin src",
+    "test": "vitest run"
+  }
+}
+```
+
+the plan is surfaced as explicit calls:
+
+```text
+Plan for npm run check:
+- cli.oxfmt.check({"paths":["."]})
+- cli.oxlint.run({"deny":"warnings","vitestPlugin":true,"paths":["src"]})
+- cli.tsc.build({})
+- cli.vitest.run({})
+
+No commands were executed.
+```
+
+To run the safe plan:
+
+```ts
+return await codemode.run_npm_script({ script: "check" });
+```
+
+`run_npm_script` prints the plan, executes only the surfaced `cli.*` calls, and stops on the first non-zero exit. By default, successful step output is compact; pass `verbose: true` to include stdout/stderr from successful steps:
+
+```ts
+return await codemode.run_npm_script({ script: "check", verbose: true });
+```
+
+Scripts fail loudly before execution if they contain unsupported shell constructs, env expansion, command substitution, pipes/redirection, recursive cycles, or denied commands such as `node`, `npm`, `npx`, `bash`, or `python` outside the safe recursive `npm run <script>` / `npm test` subset.
 
 Operation-specific timeouts can be configured with object-form `operations`:
 
@@ -159,13 +209,54 @@ Codemode-specific MCP servers and typed CLI capabilities can also be configured 
     }
   },
   "cli": {
-    "git": { "backend": "host", "operations": ["status", "branch", "diff", "log", "show", "remote", "revParse", "add", "commit", "push", "pull", "switch", "checkout", "restore", "reset", "stash", "tag"] },
-    "gh": { "backend": "host", "operations": ["issueView", "issueList", "issueCreate", "issueEdit", "issueComment", "issueClose", "labelCreate", "labelList", "prView", "prList", "prDiff", "prChecks", "prStatus"] },
+    "git": {
+      "backend": "host",
+      "operations": [
+        "status",
+        "branch",
+        "diff",
+        "log",
+        "show",
+        "remote",
+        "revParse",
+        "add",
+        "commit",
+        "push",
+        "pull",
+        "switch",
+        "checkout",
+        "restore",
+        "reset",
+        "stash",
+        "tag"
+      ]
+    },
+    "gh": {
+      "backend": "host",
+      "operations": [
+        "issueView",
+        "issueList",
+        "issueCreate",
+        "issueEdit",
+        "issueComment",
+        "issueClose",
+        "labelCreate",
+        "labelList",
+        "prView",
+        "prList",
+        "prDiff",
+        "prChecks",
+        "prStatus"
+      ]
+    },
     "rg": { "backend": "host", "operations": ["search"] },
     "find": { "backend": "just-bash", "operations": ["files"] },
     "grep": { "backend": "just-bash", "operations": ["search"] },
     "ls": { "backend": "just-bash", "operations": ["list"] },
-    "vitest": { "backend": "host", "operations": ["run"] }
+    "vitest": { "backend": "host", "operations": ["run"] },
+    "tsc": { "backend": "host", "operations": ["build"] },
+    "oxfmt": { "backend": "host", "operations": ["check", "write"] },
+    "oxlint": { "backend": "host", "operations": ["run"] }
   }
 }
 ```
@@ -240,6 +331,13 @@ npm install
 npm test
 npm run build
 npm run check
+```
+
+Inside Codemode itself, prefer the surfaced npm-script workflow instead of direct `npm run` execution:
+
+```ts
+await codemode.plan_npm_script({ script: "check" });
+await codemode.run_npm_script({ script: "check" });
 ```
 
 Source lives in `src/`; generated build output lives in `dist/`.

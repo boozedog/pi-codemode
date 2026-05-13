@@ -1,7 +1,45 @@
 {
   "cli": {
-    "git": { "backend": "host", "operations": ["status", "branch", "diff", "log", "show", "remote", "revParse", "add", "commit", "push", "pull", "switch", "checkout", "restore", "reset", "stash", "tag"] },
-    "gh": { "backend": "host", "operations": ["issueView", "issueList", "issueCreate", "issueEdit", "issueComment", "issueClose", "labelCreate", "labelList", "prView", "prList", "prDiff", "prChecks", "prStatus"] },
+    "git": {
+      "backend": "host",
+      "operations": [
+        "status",
+        "branch",
+        "diff",
+        "log",
+        "show",
+        "remote",
+        "revParse",
+        "add",
+        "commit",
+        "push",
+        "pull",
+        "switch",
+        "checkout",
+        "restore",
+        "reset",
+        "stash",
+        "tag"
+      ]
+    },
+    "gh": {
+      "backend": "host",
+      "operations": [
+        "issueView",
+        "issueList",
+        "issueCreate",
+        "issueEdit",
+        "issueComment",
+        "issueClose",
+        "labelCreate",
+        "labelList",
+        "prView",
+        "prList",
+        "prDiff",
+        "prChecks",
+        "prStatus"
+      ]
+    },
     "rg": { "backend": "host", "operations": ["search"] },
     "find": { "backend": "just-bash", "operations": ["files"] },
     "grep": { "backend": "just-bash", "operations": ["search"] },

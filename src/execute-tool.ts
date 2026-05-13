@@ -323,7 +323,10 @@ async function executeCode(
   }
 }
 
-function formatExecutionResult(result: ExecutionResult, format: ResultFormat = "structured"): string {
+function formatExecutionResult(
+  result: ExecutionResult,
+  format: ResultFormat = "structured",
+): string {
   const parts: string[] = [];
 
   if (result.logs.length > 0) {
@@ -384,14 +387,18 @@ function stringifyStructured(value: unknown): string {
 }
 
 function stripAnsi(value: string): string {
-  return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+  return value.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, "g"), "");
 }
 
 function stringSchema(options: Record<string, unknown> = {}) {
   return { type: "string", ...options } as const;
 }
 
-function recordSchema(keySchema: unknown, valueSchema: unknown, options: Record<string, unknown> = {}) {
+function recordSchema(
+  keySchema: unknown,
+  valueSchema: unknown,
+  options: Record<string, unknown> = {},
+) {
   return {
     type: "object",
     propertyNames: keySchema,

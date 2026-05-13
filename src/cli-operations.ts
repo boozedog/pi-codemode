@@ -122,6 +122,11 @@ const vitestReporterSchema: JSONSchema7 = {
   enum: ["default", "verbose", "dot", "json", "junit"],
   description: "Vitest reporter.",
 };
+const oxlintDenySchema: JSONSchema7 = {
+  type: "string",
+  enum: ["warnings"],
+  description: "Diagnostic level to deny.",
+};
 
 export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinition>> = {
   git: {
@@ -232,40 +237,96 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       description: "Git add. Stage file contents for the next commit.",
       docs: "Stage file contents for the next commit.",
       params: ["paths", "all", "patch"],
-      inputSchema: obj({ paths: sa("Paths to stage."), all: b("Stage all changes."), patch: b("Interactively choose hunks.") }),
-      toArgv: (args) => ["add", ...(args.all ? ["--all"] : []), ...(args.patch ? ["--patch"] : []), ...pathspec(args.paths)],
+      inputSchema: obj({
+        paths: sa("Paths to stage."),
+        all: b("Stage all changes."),
+        patch: b("Interactively choose hunks."),
+      }),
+      toArgv: (args) => [
+        "add",
+        ...(args.all ? ["--all"] : []),
+        ...(args.patch ? ["--patch"] : []),
+        ...pathspec(args.paths),
+      ],
     },
     commit: {
       effect: "write",
       description: "Git commit. Record staged changes in the repository.",
       docs: "Record staged changes in the repository.",
       params: ["message", "all", "amend"],
-      inputSchema: obj({ message: s("Commit message."), all: b("Stage tracked files before committing."), amend: b("Amend the previous commit.") }, ["message"]),
-      toArgv: (args) => ["commit", ...(args.all ? ["--all"] : []), ...(args.amend ? ["--amend"] : []), "-m", requiredString(args, "message")],
+      inputSchema: obj(
+        {
+          message: s("Commit message."),
+          all: b("Stage tracked files before committing."),
+          amend: b("Amend the previous commit."),
+        },
+        ["message"],
+      ),
+      toArgv: (args) => [
+        "commit",
+        ...(args.all ? ["--all"] : []),
+        ...(args.amend ? ["--amend"] : []),
+        "-m",
+        requiredString(args, "message"),
+      ],
     },
     push: {
       effect: "external",
       description: "Git push. Update remote refs using local refs.",
       docs: "Update remote refs using local refs.",
       params: ["remote", "branch", "setUpstream", "tags"],
-      inputSchema: obj({ remote: s("Remote name."), branch: s("Branch or refspec to push."), setUpstream: b("Set upstream tracking."), tags: b("Push tags.") }),
-      toArgv: (args) => ["push", ...(args.setUpstream ? ["--set-upstream"] : []), ...(args.tags ? ["--tags"] : []), ...optionalString(args.remote, "remote"), ...optionalString(args.branch, "branch")],
+      inputSchema: obj({
+        remote: s("Remote name."),
+        branch: s("Branch or refspec to push."),
+        setUpstream: b("Set upstream tracking."),
+        tags: b("Push tags."),
+      }),
+      toArgv: (args) => [
+        "push",
+        ...(args.setUpstream ? ["--set-upstream"] : []),
+        ...(args.tags ? ["--tags"] : []),
+        ...optionalString(args.remote, "remote"),
+        ...optionalString(args.branch, "branch"),
+      ],
     },
     pull: {
       effect: "external",
       description: "Git pull. Fetch from and integrate with another repository or branch.",
       docs: "Fetch from and integrate with another repository or branch.",
       params: ["remote", "branch", "rebase", "ffOnly"],
-      inputSchema: obj({ remote: s("Remote name."), branch: s("Branch to pull."), rebase: b("Rebase instead of merge."), ffOnly: b("Abort unless fast-forward is possible.") }),
-      toArgv: (args) => ["pull", ...(args.rebase ? ["--rebase"] : []), ...(args.ffOnly ? ["--ff-only"] : []), ...optionalString(args.remote, "remote"), ...optionalString(args.branch, "branch")],
+      inputSchema: obj({
+        remote: s("Remote name."),
+        branch: s("Branch to pull."),
+        rebase: b("Rebase instead of merge."),
+        ffOnly: b("Abort unless fast-forward is possible."),
+      }),
+      toArgv: (args) => [
+        "pull",
+        ...(args.rebase ? ["--rebase"] : []),
+        ...(args.ffOnly ? ["--ff-only"] : []),
+        ...optionalString(args.remote, "remote"),
+        ...optionalString(args.branch, "branch"),
+      ],
     },
     switch: {
       effect: "write",
       description: "Git switch. Switch branches.",
       docs: "Switch branches.",
       params: ["branch", "create", "detach"],
-      inputSchema: obj({ branch: s("Branch to switch to."), create: b("Create a new branch."), detach: b("Detach HEAD at branch/ref.") }, ["branch"]),
-      toArgv: (args) => ["switch", ...(args.create ? ["--create"] : []), ...(args.detach ? ["--detach"] : []), requiredString(args, "branch")],
+      inputSchema: obj(
+        {
+          branch: s("Branch to switch to."),
+          create: b("Create a new branch."),
+          detach: b("Detach HEAD at branch/ref."),
+        },
+        ["branch"],
+      ),
+      toArgv: (args) => [
+        "switch",
+        ...(args.create ? ["--create"] : []),
+        ...(args.detach ? ["--detach"] : []),
+        requiredString(args, "branch"),
+      ],
     },
     checkout: {
       effect: "write",
@@ -273,39 +334,84 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       docs: "Switch branches or restore working tree paths.",
       params: ["branch", "paths"],
       inputSchema: obj({ branch: s("Branch or tree-ish."), paths: sa("Paths to check out.") }),
-      toArgv: (args) => ["checkout", ...optionalString(args.branch, "branch"), ...pathspec(args.paths)],
+      toArgv: (args) => [
+        "checkout",
+        ...optionalString(args.branch, "branch"),
+        ...pathspec(args.paths),
+      ],
     },
     restore: {
       effect: "write",
       description: "Git restore. Restore working tree files.",
       docs: "Restore working tree files.",
       params: ["paths", "staged", "source"],
-      inputSchema: obj({ paths: sa("Paths to restore."), staged: b("Restore the index."), source: s("Tree-ish to restore from.") }),
-      toArgv: (args) => ["restore", ...(args.staged ? ["--staged"] : []), ...stringFlag("--source", args.source, "source"), ...pathspec(args.paths)],
+      inputSchema: obj({
+        paths: sa("Paths to restore."),
+        staged: b("Restore the index."),
+        source: s("Tree-ish to restore from."),
+      }),
+      toArgv: (args) => [
+        "restore",
+        ...(args.staged ? ["--staged"] : []),
+        ...stringFlag("--source", args.source, "source"),
+        ...pathspec(args.paths),
+      ],
     },
     reset: {
       effect: "write",
       description: "Git reset. Reset current HEAD to a state.",
       docs: "Reset current HEAD to a state.",
       params: ["mode", "ref", "paths"],
-      inputSchema: obj({ mode: resetModeSchema, ref: s("Commit to reset to."), paths: sa("Paths to reset.") }),
-      toArgv: (args) => ["reset", ...resetMode(args.mode), ...optionalString(args.ref, "ref"), ...pathspec(args.paths)],
+      inputSchema: obj({
+        mode: resetModeSchema,
+        ref: s("Commit to reset to."),
+        paths: sa("Paths to reset."),
+      }),
+      toArgv: (args) => [
+        "reset",
+        ...resetMode(args.mode),
+        ...optionalString(args.ref, "ref"),
+        ...pathspec(args.paths),
+      ],
     },
     stash: {
       effect: "write",
       description: "Git stash. Stash or apply working tree changes.",
       docs: "Stash, list, apply, pop, drop, or clear working tree changes.",
       params: ["command", "message", "stash", "includeUntracked"],
-      inputSchema: obj({ command: stashCommandSchema, message: s("Stash message for push."), stash: s("Stash reference."), includeUntracked: b("Include untracked files for push.") }),
-      toArgv: (args) => ["stash", ...stashCommand(args.command), ...(args.includeUntracked ? ["--include-untracked"] : []), ...stringFlag("-m", args.message, "message"), ...optionalString(args.stash, "stash")],
+      inputSchema: obj({
+        command: stashCommandSchema,
+        message: s("Stash message for push."),
+        stash: s("Stash reference."),
+        includeUntracked: b("Include untracked files for push."),
+      }),
+      toArgv: (args) => [
+        "stash",
+        ...stashCommand(args.command),
+        ...(args.includeUntracked ? ["--include-untracked"] : []),
+        ...stringFlag("-m", args.message, "message"),
+        ...optionalString(args.stash, "stash"),
+      ],
     },
     tag: {
       effect: "write",
       description: "Git tag. Create, list, delete, or verify tags.",
       docs: "Create, list, delete, or verify tags.",
       params: ["name", "message", "delete", "list"],
-      inputSchema: obj({ name: s("Tag name."), message: s("Create annotated tag with message."), delete: b("Delete the tag."), list: b("List tags matching name.") }),
-      toArgv: (args) => ["tag", ...(args.delete ? ["--delete"] : []), ...(args.list ? ["--list"] : []), ...(args.message ? ["-a"] : []), ...optionalString(args.name, "name"), ...stringFlag("-m", args.message, "message")],
+      inputSchema: obj({
+        name: s("Tag name."),
+        message: s("Create annotated tag with message."),
+        delete: b("Delete the tag."),
+        list: b("List tags matching name."),
+      }),
+      toArgv: (args) => [
+        "tag",
+        ...(args.delete ? ["--delete"] : []),
+        ...(args.list ? ["--list"] : []),
+        ...(args.message ? ["-a"] : []),
+        ...optionalString(args.name, "name"),
+        ...stringFlag("-m", args.message, "message"),
+      ],
     },
   },
   gh: {
@@ -380,7 +486,18 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       effect: "external",
       description: "GitHub issue edit. Edit a GitHub issue.",
       docs: "Edit a GitHub issue title, body, labels, assignees, and optional repo.",
-      params: ["number", "title", "body", "addLabel", "removeLabel", "addAssignee", "removeAssignee", "repo", "github", "issue"],
+      params: [
+        "number",
+        "title",
+        "body",
+        "addLabel",
+        "removeLabel",
+        "addAssignee",
+        "removeAssignee",
+        "repo",
+        "github",
+        "issue",
+      ],
       inputSchema: obj(
         {
           number: n("Issue number."),
@@ -690,6 +807,52 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       ],
     },
   },
+  tsc: {
+    build: {
+      effect: "write",
+      description: "TypeScript build. Compile the project with tsc.",
+      docs: "Compile the project with TypeScript. Pass watch: true for --watch.",
+      params: ["watch"],
+      inputSchema: obj({ watch: b("Watch input files.") }),
+      toArgv: (args) => (args.watch ? ["--watch"] : []),
+    },
+  },
+  oxfmt: {
+    check: {
+      effect: "write",
+      description: "Oxfmt check. Check formatting without writing changes.",
+      docs: "Check formatting with oxfmt without writing changes.",
+      params: ["paths"],
+      inputSchema: obj({ paths: sa("Paths to check.") }),
+      toArgv: (args) => [...stringArray(args.paths), "--check"],
+    },
+    write: {
+      effect: "write",
+      description: "Oxfmt write. Format files in place.",
+      docs: "Format files in place with oxfmt.",
+      params: ["paths"],
+      inputSchema: obj({ paths: sa("Paths to format.") }),
+      toArgv: (args) => [...stringArray(args.paths), "--write"],
+    },
+  },
+  oxlint: {
+    run: {
+      effect: "write",
+      description: "Oxlint run. Run oxlint checks.",
+      docs: "Run oxlint checks. Supports deny: 'warnings', vitestPlugin, and paths.",
+      params: ["deny", "vitestPlugin", "paths"],
+      inputSchema: obj({
+        deny: oxlintDenySchema,
+        vitestPlugin: b("Enable the vitest plugin."),
+        paths: sa("Paths to lint."),
+      }),
+      toArgv: (args) => [
+        ...stringFlag("--deny", args.deny, "deny"),
+        ...(args.vitestPlugin ? ["--vitest-plugin"] : []),
+        ...stringArray(args.paths),
+      ],
+    },
+  },
 };
 
 export function getCliOperationDefinition(
@@ -747,7 +910,8 @@ function resetMode(value: unknown): string[] {
 }
 function stashCommand(value: unknown): string[] {
   if (value === undefined) return [];
-  if (["push", "pop", "apply", "list", "drop", "clear"].includes(String(value))) return [String(value)];
+  if (["push", "pop", "apply", "list", "drop", "clear"].includes(String(value)))
+    return [String(value)];
   throw new Error("command must be one of push, pop, apply, list, drop, clear");
 }
 function pathspec(value: unknown): string[] {

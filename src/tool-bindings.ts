@@ -4,6 +4,8 @@
 // MCP tools are exposed as nested namespaces (e.g., codemode.github.search_issues).
 
 import type { AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { searchTools } from "./search.js";
 import { createCliBindings } from "./cli.js";
 import { generateToolSignature, generateParamSummary } from "./type-generator.js";
@@ -11,6 +13,7 @@ import type { CliConfig } from "./config.js";
 import { createFileTools } from "./file-tools.js";
 import type { McpClient } from "./mcp-client.js";
 import type { McpServerInfo } from "./search.js";
+import { planNpmScript } from "./npm-scripts.js";
 
 /** The shape the sandbox code sees at runtime */
 export interface ToolBindings {
@@ -25,6 +28,8 @@ export interface ToolBindings {
   list_mcp_servers(): Promise<string>;
   list_tools(params: { namespace: string; offset?: number; limit?: number }): Promise<string>;
   describe_tools(params: { namespace: string; tool?: string }): Promise<string>;
+  plan_npm_script(params: { script: string }): Promise<string>;
+  run_npm_script(params: { script: string; verbose?: boolean }): Promise<string>;
   cli: Record<string, unknown>;
   progress(message: string): void;
   /** MCP server namespaces are added dynamically */
@@ -81,6 +86,55 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
 
     async search_tools(params) {
       return searchTools(params.query);
+    },
+
+    async plan_npm_script(params) {
+      if (signal?.aborted) throw new Error("Execution cancelled");
+      const packageJson = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")) as {
+        scripts?: Record<string, string>;
+      };
+      const plan = planNpmScript(packageJson.scripts ?? {}, params.script);
+      return formatNpmScriptPlan(params.script, plan.calls);
+    },
+
+    async run_npm_script(params) {
+      if (signal?.aborted) throw new Error("Execution cancelled");
+      const packageJson = JSON.parse(readFileSync(join(cwd, "package.json"), "utf8")) as {
+        scripts?: Record<string, string>;
+      };
+      const plan = planNpmScript(packageJson.scripts ?? {}, params.script);
+      const lines = [
+        formatNpmScriptPlan(params.script, plan.calls).replace(
+          "No commands were executed.",
+          "Executing surfaced cli.* calls...",
+        ),
+      ];
+      for (const call of plan.calls) {
+        const label = `cli.${call.tool}.${call.operation}(${JSON.stringify(call.args)})`;
+        const result = (await (
+          bindings.cli as {
+            __call(params: {
+              tool: string;
+              operation: string;
+              args: Record<string, unknown>;
+            }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+          }
+        ).__call({ tool: call.tool, operation: call.operation, args: call.args })) as {
+          stdout: string;
+          stderr: string;
+          exitCode: number;
+        };
+        lines.push(`Executed ${label} -> exit ${result.exitCode}`);
+        if (params.verbose && result.stdout) lines.push(result.stdout.trimEnd());
+        if (params.verbose && result.stderr) lines.push(result.stderr.trimEnd());
+        if (result.exitCode !== 0) {
+          if (!params.verbose && result.stdout) lines.push(result.stdout.trimEnd());
+          if (!params.verbose && result.stderr) lines.push(result.stderr.trimEnd());
+          lines.push(`Stopped after ${label} failed with exit ${result.exitCode}`);
+          break;
+        }
+      }
+      return lines.join("\n");
     },
 
     async list_mcp_servers() {
@@ -289,6 +343,16 @@ function describeBuiltinTools(toolName?: string): string {
         "Search for tools by name or description. Returns matching tool names, descriptions, and call signatures.",
       params: "{ query: string }",
     },
+    plan_npm_script: {
+      description:
+        "Inspect package.json and decompose a safe npm script into visible cli.* calls. Rejects denied commands and unsupported shell syntax before execution.",
+      params: "{ script: string }",
+    },
+    run_npm_script: {
+      description:
+        "Decompose a safe npm script into visible cli.* calls, then execute only those surfaced calls. Stops on the first non-zero exit.",
+      params: "{ script: string; verbose?: boolean }",
+    },
     list_mcp_servers: {
       description: "List configured MCP server namespaces available under codemode.*.",
       params: "{}",
@@ -326,6 +390,18 @@ function describeBuiltinTools(toolName?: string): string {
   }
 
   return `${toolName}(${tool.params})\n${tool.description}`;
+}
+
+function formatNpmScriptPlan(
+  script: string,
+  calls: Array<{ tool: string; operation: string; args: Record<string, unknown> }>,
+): string {
+  const lines = [`Plan for npm run ${script}:`];
+  for (const call of calls) {
+    lines.push(`- cli.${call.tool}.${call.operation}(${JSON.stringify(call.args)})`);
+  }
+  lines.push("", "No commands were executed.");
+  return lines.join("\n");
 }
 
 /**

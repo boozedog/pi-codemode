@@ -1,4 +1,7 @@
-import { describe, expect, test } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, test } from "vitest";
 import { createToolBindings } from "./tool-bindings.js";
 import type { McpServerInfo } from "./search.js";
 
@@ -22,7 +25,78 @@ const mcpServers: McpServerInfo[] = [
   { serverName: "slack", namespace: "slack", tools: [] },
 ];
 
+const dirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+function tempProject() {
+  const dir = mkdtempSync(join(tmpdir(), "pi-codemode-tool-bindings-test-"));
+  dirs.push(dir);
+  return dir;
+}
+
 describe("createToolBindings MCP discovery", () => {
+  test("plans npm scripts from package.json as visible cli calls", async () => {
+    const cwd = tempProject();
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({
+        scripts: { check: "npm run build && npm test", build: "tsc", test: "vitest run" },
+      }),
+    );
+    const bindings = createToolBindings({ cwd, mcpServers });
+
+    await expect(bindings.plan_npm_script({ script: "check" })).resolves.toContain(
+      "Plan for npm run check:\n- cli.tsc.build({})\n- cli.vitest.run({})",
+    );
+  });
+
+  test("runs npm scripts by executing only decomposed cli calls", async () => {
+    const cwd = tempProject();
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { build: "tsc" } }));
+    const bindings = createToolBindings({
+      cwd,
+      mcpServers,
+      cli: { tsc: { backend: "host", command: "/usr/bin/true", operations: ["build"] } },
+    });
+
+    await expect(bindings.run_npm_script({ script: "build" })).resolves.toContain(
+      "Executed cli.tsc.build({}) -> exit 0",
+    );
+  });
+
+  test("runs npm scripts compactly unless verbose output is requested", async () => {
+    const cwd = tempProject();
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { dev: "tsc --watch" } }));
+    const bindings = createToolBindings({
+      cwd,
+      mcpServers,
+      cli: { tsc: { backend: "host", command: "/bin/echo", operations: ["build"] } },
+    });
+
+    const compact = await bindings.run_npm_script({ script: "dev" });
+    const verbose = await bindings.run_npm_script({ script: "dev", verbose: true });
+
+    expect(compact).not.toContain("--watch");
+    expect(verbose).toContain("--watch");
+  });
+
+  test("stops npm script execution on the first non-zero cli exit", async () => {
+    const cwd = tempProject();
+    writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { build: "tsc" } }));
+    const bindings = createToolBindings({
+      cwd,
+      mcpServers,
+      cli: { tsc: { backend: "host", command: "/usr/bin/false", operations: ["build"] } },
+    });
+
+    await expect(bindings.run_npm_script({ script: "build" })).resolves.toContain(
+      "Stopped after cli.tsc.build({}) failed with exit 1",
+    );
+  });
+
   test("describes top-level file editing tools with usage guidance", async () => {
     const bindings = createToolBindings({ cwd: process.cwd(), mcpServers });
 

@@ -254,7 +254,9 @@ function createTopLevelFileTools(projectRoot: string): ToolDefinition[] {
         ),
       }),
       async execute(_toolCallId, params) {
-        return textResult(fileTools.replace_in_file(params as Parameters<typeof fileTools.replace_in_file>[0]));
+        return textResult(
+          fileTools.replace_in_file(params as Parameters<typeof fileTools.replace_in_file>[0]),
+        );
       },
       renderResult: renderFileToolResult,
     },
@@ -266,13 +268,16 @@ function createTopLevelFileTools(projectRoot: string): ToolDefinition[] {
         patch: stringSchema(),
       }),
       async execute(_toolCallId, params) {
-        return textResult(fileTools.apply_patch(params as Parameters<typeof fileTools.apply_patch>[0]));
+        return textResult(
+          fileTools.apply_patch(params as Parameters<typeof fileTools.apply_patch>[0]),
+        );
       },
       renderCall(args: unknown, theme: unknown) {
         const diffTheme = theme as DiffTheme;
-        const patch = typeof args === "object" && args && "patch" in args
-          ? String((args as { patch?: unknown }).patch ?? "")
-          : "";
+        const patch =
+          typeof args === "object" && args && "patch" in args
+            ? String((args as { patch?: unknown }).patch ?? "")
+            : "";
         return new Text(
           diffTheme.fg("toolTitle", diffTheme.bold("apply_patch")) +
             "\n" +
@@ -295,7 +300,10 @@ interface DiffTheme {
 
 function renderFileToolResult(result: unknown, _options: unknown, theme: unknown) {
   const diffTheme = theme as DiffTheme;
-  const fileResult = result as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+  const fileResult = result as {
+    content?: Array<{ type: string; text?: string }>;
+    isError?: boolean;
+  };
   const text = fileResult.content?.[0]?.text ?? "";
   const marker = fileResult.isError
     ? (diffTheme.error?.("✗ ") ?? "✗ ")

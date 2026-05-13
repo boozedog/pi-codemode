@@ -10,15 +10,21 @@ describe("built-in file tool type definitions", () => {
   test("accepts top-level read but rejects mutating file helpers in guest code", () => {
     const typeDefs = generateBuiltinTypeDefs();
 
-    expect(typeCheck(`const text = await read({ path: "src/index.ts" });`, typeDefs).errors).toEqual([]);
-    expect(typeCheck(`await write({ path: "out.txt", content: "x" });`, typeDefs).errors).not.toEqual([]);
+    expect(
+      typeCheck(`const text = await read({ path: "src/index.ts" });`, typeDefs).errors,
+    ).toEqual([]);
+    expect(
+      typeCheck(`await write({ path: "out.txt", content: "x" });`, typeDefs).errors,
+    ).not.toEqual([]);
     expect(
       typeCheck(
         `await replace_in_file({ path: "src/index.ts", edits: [{ oldText: "before", newText: "after" }] });`,
         typeDefs,
       ).errors,
     ).not.toEqual([]);
-    expect(typeCheck(`await apply_patch({ patch: "--- a/x\n+++ b/x\n" });`, typeDefs).errors).not.toEqual([]);
+    expect(
+      typeCheck(`await apply_patch({ patch: "--- a/x\n+++ b/x\n" });`, typeDefs).errors,
+    ).not.toEqual([]);
   });
 
   test("does not expose replace_in_file through codemode namespace", () => {
@@ -46,7 +52,9 @@ describe("built-in file tool type definitions", () => {
     expect(typeDefs).not.toContain("declare function write");
     expect(typeDefs).not.toContain("declare function replace_in_file");
     expect(typeDefs).not.toContain("declare function apply_patch");
-    expect(typeDefs).toContain("File mutation is intentionally not available inside codemode guest code");
+    expect(typeDefs).toContain(
+      "File mutation is intentionally not available inside codemode guest code",
+    );
     expect(typeDefs).toContain("Use the top-level visible patch editing tool instead");
   });
 });

@@ -66,13 +66,16 @@ describe("cli command capabilities", () => {
       'prList(args?: { repo?: string; state?: "open" | "closed" | "all"; limit?: number; json?: string[]; })',
     );
     expect(types).toContain(
-      'interface CommandResult { stdout: string; stderr: string; exitCode: number; stdoutFile?: string; stderrFile?: string; json?: unknown; }',
+      "interface CommandResult { stdout: string; stderr: string; exitCode: number; stdoutFile?: string; stderrFile?: string; json?: unknown; }",
     );
   });
 
   test("host commands automatically parse valid JSON output", async () => {
     const cwd = tempProject();
-    writeFileSync(join(cwd, "issue"), 'process.stdout.write(JSON.stringify({ number: 1, title: "bug" }));\n');
+    writeFileSync(
+      join(cwd, "issue"),
+      'process.stdout.write(JSON.stringify({ number: 1, title: "bug" }));\n',
+    );
     const result = await new QuickJsExecutor({ timeout: 10_000 }).execute(
       "return await cli.gh.issueView({ number: 1 });",
       {
@@ -197,11 +200,7 @@ describe("cli command capabilities", () => {
     ]);
     expect(buildCliArgv("git", "remote", { verbose: true })).toEqual(["remote", "-v"]);
     expect(buildCliArgv("git", "revParse", { ref: "HEAD" })).toEqual(["rev-parse", "HEAD"]);
-    expect(buildCliArgv("git", "add", { paths: ["src/a.ts"] })).toEqual([
-      "add",
-      "--",
-      "src/a.ts",
-    ]);
+    expect(buildCliArgv("git", "add", { paths: ["src/a.ts"] })).toEqual(["add", "--", "src/a.ts"]);
     expect(buildCliArgv("git", "commit", { message: "feat: add tools" })).toEqual([
       "commit",
       "-m",
@@ -366,35 +365,15 @@ describe("cli command capabilities", () => {
         body: "Depends on #22.",
         repo: "owner/repo",
       }),
-    ).toEqual([
-      "issue",
-      "comment",
-      "21",
-      "--body",
-      "Depends on #22.",
-      "--repo",
-      "owner/repo",
-    ]);
-    expect(buildCliArgv("gh", "issueClose", { number: 22 })).toEqual([
-      "issue",
-      "close",
-      "22",
-    ]);
+    ).toEqual(["issue", "comment", "21", "--body", "Depends on #22.", "--repo", "owner/repo"]);
+    expect(buildCliArgv("gh", "issueClose", { number: 22 })).toEqual(["issue", "close", "22"]);
     expect(
       buildCliArgv("gh", "issueClose", {
         number: 22,
         comment: "Done in 0efa12b.",
         repo: "owner/repo",
       }),
-    ).toEqual([
-      "issue",
-      "close",
-      "22",
-      "--comment",
-      "Done in 0efa12b.",
-      "--repo",
-      "owner/repo",
-    ]);
+    ).toEqual(["issue", "close", "22", "--comment", "Done in 0efa12b.", "--repo", "owner/repo"]);
     expect(
       buildCliArgv("gh", "labelCreate", {
         name: "security",
@@ -454,10 +433,18 @@ describe("cli command capabilities", () => {
       "src/cli.test.ts",
       "--update",
     ]);
-    expect(buildCliArgv("vitest", "run", { reporter: "json" })).toEqual([
-      "run",
-      "--reporter=json",
-    ]);
+    expect(buildCliArgv("vitest", "run", { reporter: "json" })).toEqual(["run", "--reporter=json"]);
+    expect(buildCliArgv("tsc", "build", {})).toEqual([]);
+    expect(buildCliArgv("tsc", "build", { watch: true })).toEqual(["--watch"]);
+    expect(buildCliArgv("oxfmt", "check", { paths: ["."] })).toEqual([".", "--check"]);
+    expect(buildCliArgv("oxfmt", "write", { paths: ["."] })).toEqual([".", "--write"]);
+    expect(
+      buildCliArgv("oxlint", "run", {
+        deny: "warnings",
+        vitestPlugin: true,
+        paths: ["src"],
+      }),
+    ).toEqual(["--deny", "warnings", "--vitest-plugin", "src"]);
   });
 
   test("validates runtime argument shapes", () => {

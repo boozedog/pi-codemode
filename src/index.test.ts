@@ -79,9 +79,7 @@ describe("codemodeExtension", () => {
     codemodeExtension(pi as never);
 
     expect(pi.registerFlag).toHaveBeenCalledWith("no-codemode", expect.any(Object));
-    expect(pi.registerTool).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "codemode" }),
-    );
+    expect(pi.registerTool).toHaveBeenCalledWith(expect.objectContaining({ name: "codemode" }));
     expect([...handlers.keys()]).toEqual([
       "session_start",
       "session_shutdown",
@@ -147,7 +145,7 @@ describe("codemodeExtension", () => {
     expect(prompt.systemPrompt).toContain("## Code Mode (on)");
     expect(prompt.systemPrompt).toContain("native bash tool is not exposed");
     expect(prompt.systemPrompt).toContain(
-      'If the result you need is primarily stdout/stderr from one or more CLI calls, return a plain string',
+      "If the result you need is primarily stdout/stderr from one or more CLI calls, return a plain string",
     );
     expect(prompt.systemPrompt).toContain(
       "Prefer `text` for your own reasoning because some transcript/log surfaces show raw ANSI escapes literally",
@@ -166,7 +164,9 @@ describe("codemodeExtension", () => {
 
     await handlers.get("session_start")?.({}, ctx);
 
-    expect(pi.registerTool).toHaveBeenCalledWith(expect.objectContaining({ name: "replace_in_file" }));
+    expect(pi.registerTool).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "replace_in_file" }),
+    );
     expect(pi.registerTool).toHaveBeenCalledWith(expect.objectContaining({ name: "apply_patch" }));
     expect(pi.setActiveTools).toHaveBeenCalledWith([
       "read",
@@ -201,7 +201,14 @@ describe("codemodeExtension", () => {
       {},
     );
     const result = applyPatch.renderResult(
-      { content: [{ type: "text", text: "Applied patch to 1 file\n--- a/test.txt\n+++ b/test.txt\n@@ -1,1 +1,1 @@\n-old\n+new" }] },
+      {
+        content: [
+          {
+            type: "text",
+            text: "Applied patch to 1 file\n--- a/test.txt\n+++ b/test.txt\n@@ -1,1 +1,1 @@\n-old\n+new",
+          },
+        ],
+      },
       { expanded: true, isPartial: false },
       theme,
       {},
