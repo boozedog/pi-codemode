@@ -150,6 +150,7 @@ describe("codemodeExtension", () => {
     expect(prompt.systemPrompt).toContain(
       "Prefer `text` for your own reasoning because some transcript/log surfaces show raw ANSI escapes literally",
     );
+    expect(prompt.systemPrompt).toContain("Ctrl+O");
   });
 
   test("on mode replaces native edit with codemode file edit tools", async () => {
@@ -198,7 +199,7 @@ describe("codemodeExtension", () => {
     const call = applyPatch.renderCall(
       { patch: "--- a/test.txt\n+++ b/test.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n" },
       theme,
-      {},
+      { expanded: true, isPartial: false },
     );
     const result = applyPatch.renderResult(
       {
@@ -220,6 +221,78 @@ describe("codemodeExtension", () => {
     expect(colors).toContain("toolDiffRemoved");
     expect(colors).toContain("toolDiffAdded");
     expect(colors).toContain("toolDiffContext");
+  });
+
+  test("file edit tools are compact by default and expanded on demand", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi } = createPiMock();
+    codemodeExtension(pi as never);
+    const applyPatch = pi.registerTool.mock.calls
+      .map((call) => call[0])
+      .find((tool) => tool.name === "apply_patch");
+    const theme = {
+      fg: (_color: string, text: string) => text,
+      bold: (text: string) => text,
+      success: (text: string) => text,
+      error: (text: string) => text,
+    };
+    const patch = "--- a/test.txt\n+++ b/test.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n";
+
+    const collapsedCall = applyPatch.renderCall({ patch }, theme, {
+      expanded: false,
+      isPartial: false,
+    });
+    const expandedCall = applyPatch.renderCall({ patch }, theme, {
+      expanded: true,
+      isPartial: false,
+    });
+    const collapsedResult = applyPatch.renderResult(
+      { content: [{ type: "text", text: `Applied patch to 1 file\n${patch}` }] },
+      { expanded: false, isPartial: false },
+      theme,
+      {},
+    );
+
+    expect(collapsedCall.render(80).join("\n")).toContain("--- a/test.txt");
+    expect(collapsedCall.render(80).join("\n")).toContain("-old");
+    expect(expandedCall.render(80).join("\n")).toContain("-old");
+    expect(collapsedResult.render(80).join("\n")).toContain("--- a/test.txt");
+    expect(collapsedResult.render(80).join("\n")).toContain("-old");
+  });
+
+  test("replace_in_file results are compact by default and expanded on demand", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi } = createPiMock();
+    codemodeExtension(pi as never);
+    const replaceInFile = pi.registerTool.mock.calls
+      .map((call) => call[0])
+      .find((tool) => tool.name === "replace_in_file");
+    const theme = {
+      fg: (_color: string, text: string) => text,
+      bold: (text: string) => text,
+      success: (text: string) => text,
+      error: (text: string) => text,
+    };
+    const middle = Array.from({ length: 30 }, (_, i) => ` line ${i}`).join("\n");
+    const text = `Updated test.txt\n--- a/test.txt\n+++ b/test.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n${middle}\n-tail`;
+
+    const collapsed = replaceInFile.renderResult(
+      { content: [{ type: "text", text }] },
+      { expanded: false, isPartial: false },
+      theme,
+      {},
+    );
+    const expanded = replaceInFile.renderResult(
+      { content: [{ type: "text", text }] },
+      { expanded: true, isPartial: false },
+      theme,
+      {},
+    );
+
+    expect(collapsed.render(80).join("\n")).toContain("Ctrl+O to expand");
+    expect(collapsed.render(80).join("\n")).not.toContain("line 15");
+    expect(expanded.render(80).join("\n")).toContain("line 15");
+    expect(expanded.render(80).join("\n")).toContain("Ctrl+O to collapse");
   });
 
   test("off mode leaves native tools active and prompt guidance native", async () => {

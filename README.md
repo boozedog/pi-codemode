@@ -25,6 +25,8 @@ return JSON.parse(pkg).name;
 
 Return a value to include it in the tool result. `print()` and `console.log()` output is captured before the return value. Type errors are reported before execution, so invalid code has no side effects. Runtime errors are returned as tool errors.
 
+Large codemode calls, results, and file diffs render compactly in Pi by hiding their middle section. Use `Ctrl+O` to expand the hidden content, and `Ctrl+O` again to collapse.
+
 ## Built-in globals
 
 Generated code only receives explicit globals:

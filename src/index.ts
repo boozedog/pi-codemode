@@ -272,7 +272,7 @@ function createTopLevelFileTools(projectRoot: string): ToolDefinition[] {
           fileTools.apply_patch(params as Parameters<typeof fileTools.apply_patch>[0]),
         );
       },
-      renderCall(args: unknown, theme: unknown) {
+      renderCall(args: unknown, theme: unknown, options?: unknown) {
         const diffTheme = theme as DiffTheme;
         const patch =
           typeof args === "object" && args && "patch" in args
@@ -281,7 +281,7 @@ function createTopLevelFileTools(projectRoot: string): ToolDefinition[] {
         return new Text(
           diffTheme.fg("toolTitle", diffTheme.bold("apply_patch")) +
             "\n" +
-            renderDiffText(patch, diffTheme),
+            renderCollapsibleDiffText(patch, diffTheme, isExpanded(options)),
           0,
           0,
         );
@@ -298,7 +298,7 @@ interface DiffTheme {
   error?: (text: string) => string;
 }
 
-function renderFileToolResult(result: unknown, _options: unknown, theme: unknown) {
+function renderFileToolResult(result: unknown, options: unknown, theme: unknown) {
   const diffTheme = theme as DiffTheme;
   const fileResult = result as {
     content?: Array<{ type: string; text?: string }>;
@@ -308,7 +308,38 @@ function renderFileToolResult(result: unknown, _options: unknown, theme: unknown
   const marker = fileResult.isError
     ? (diffTheme.error?.("✗ ") ?? "✗ ")
     : (diffTheme.success?.("✓ ") ?? "✓ ");
-  return new Text(marker + renderDiffText(text, diffTheme), 0, 0);
+  const rendered = renderCollapsibleDiffText(text, diffTheme, isExpanded(options));
+  return new Text(marker + rendered, 0, 0);
+}
+
+function isExpanded(options: unknown): boolean {
+  return Boolean(
+    typeof options === "object" &&
+    options &&
+    "expanded" in options &&
+    (options as { expanded?: unknown }).expanded,
+  );
+}
+
+function renderCollapsibleDiffText(text: string, theme: DiffTheme, expanded: boolean): string {
+  const lines = text.split("\n");
+  const maxCollapsedLines = 20;
+  if (expanded || lines.length <= maxCollapsedLines) {
+    return (
+      renderDiffText(text, theme) +
+      (expanded && lines.length > maxCollapsedLines ? "\n" + expandHint("to collapse") : "")
+    );
+  }
+  const headCount = 10;
+  const tailCount = 10;
+  const hiddenCount = lines.length - headCount - tailCount;
+  return (
+    renderDiffText(lines.slice(0, headCount).join("\n"), theme) +
+    "\n" +
+    theme.fg("dim", `... ${hiddenCount} lines hidden (${expandHint("to expand")})`) +
+    "\n" +
+    renderDiffText(lines.slice(-tailCount).join("\n"), theme)
+  );
 }
 
 function renderDiffText(text: string, theme: DiffTheme): string {
@@ -321,6 +352,10 @@ function renderDiffText(text: string, theme: DiffTheme): string {
       return line;
     })
     .join("\n");
+}
+
+function expandHint(description: "to expand" | "to collapse"): string {
+  return `Ctrl+O ${description}`;
 }
 
 function stringSchema() {
@@ -374,6 +409,8 @@ ${mcpSummary ? "\n" + mcpSummary + "\n" : ""}
 Call the top-level \`codemode\` tool with a TypeScript code body. Use top-level \`read\` for file inspection; file mutation helpers are intentionally unavailable inside guest code. Use top-level visible patch editing instead (see #21 for diff rendering). Use the in-guest \`codemode.*\` object for discovery and MCP tools. Prefer \`return\` for the final value. Use \`print()\` only for diagnostics or intermediate output you do not also return.
 
 Top-level \`resultFormat\` controls rendering: use \`structured\`/\`json\` for parsed data, \`text\`/\`plain\` for agent-readable stdout-heavy command results with ANSI stripped, \`raw\` when exact stdout/stderr bytes or user-visible color/style are explicitly wanted, and \`auto\` to choose text for string/stdout-like values and structured JSON for objects. Prefer \`text\` for your own reasoning because some transcript/log surfaces show raw ANSI escapes literally; use \`raw\` only when the user wants color/styling or exact output.
+
+Large tool calls/results may be visually collapsed in the transcript; use Ctrl+O to expand them when you need the hidden middle content.
 
 If the result you need is primarily stdout/stderr from one or more CLI calls, return a plain string and set \`resultFormat: "text"\` instead of returning an object containing \`stdout\` fields. Avoid rendering stdout inside JSON unless you need machine-readable fields such as \`exitCode\`, parsed \`json\`, or multiple named values.
 

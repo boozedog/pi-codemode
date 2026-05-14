@@ -99,6 +99,104 @@ describe("createExecuteTool executor selection", () => {
     expect(result.render(80).join("\n")).toContain("ok");
   });
 
+  test("renders long codemode calls compact by default and expanded on demand", () => {
+    const tool = createExecuteTool({
+      typeDefs: "",
+      bindings,
+      timeout: 1_000,
+      executor: { kind: "quickjs" },
+    }) as {
+      renderCall: (
+        args: { code: string },
+        theme: Theme,
+        context: { expanded: boolean; isPartial: boolean },
+      ) => RenderedComponent;
+    };
+    const theme = createTheme();
+    const code = Array.from({ length: 20 }, (_, i) => `const value${i} = ${i};`).join("\n");
+
+    const collapsed = tool.renderCall({ code }, theme, { expanded: false, isPartial: false });
+    const expanded = tool.renderCall({ code }, theme, { expanded: true, isPartial: false });
+
+    expect(collapsed.render(80).join("\n")).toContain("20 lines");
+    expect(collapsed.render(80).join("\n")).not.toContain("value10");
+    expect(collapsed.render(80).join("\n")).toContain("value0");
+    expect(collapsed.render(80).join("\n")).toContain("value18");
+    expect(expanded.render(80).join("\n")).toContain("value19");
+  });
+
+  test("renders long codemode results compact by default with expand hint", () => {
+    const tool = createExecuteTool({
+      typeDefs: "",
+      bindings,
+      timeout: 1_000,
+      executor: { kind: "quickjs" },
+    }) as {
+      renderResult: (
+        result: unknown,
+        options: { expanded: boolean; isPartial: boolean },
+        theme: Theme,
+        context: unknown,
+      ) => RenderedComponent;
+    };
+    const theme = createTheme();
+    const text = Array.from({ length: 12 }, (_, i) => `line ${i}`).join("\n");
+
+    const collapsed = tool.renderResult(
+      { content: [{ type: "text", text }] },
+      { expanded: false, isPartial: false },
+      theme,
+      {},
+    );
+    const expanded = tool.renderResult(
+      { content: [{ type: "text", text }] },
+      { expanded: true, isPartial: false },
+      theme,
+      {},
+    );
+
+    expect(collapsed.render(80).join("\n")).toContain("Ctrl+O to expand");
+    expect(collapsed.render(80).join("\n")).toContain("line 0");
+    expect(collapsed.render(80).join("\n")).not.toContain("line 6");
+    expect(collapsed.render(80).join("\n")).toContain("line 11");
+    expect(expanded.render(80).join("\n")).toContain("line 11");
+  });
+
+  test("renders multi-error codemode failures compact by default with expand hint", () => {
+    const tool = createExecuteTool({
+      typeDefs: "",
+      bindings,
+      timeout: 1_000,
+      executor: { kind: "quickjs" },
+    }) as {
+      renderResult: (
+        result: unknown,
+        options: { expanded: boolean; isPartial: boolean },
+        theme: Theme,
+        context: unknown,
+      ) => RenderedComponent;
+    };
+    const theme = createTheme();
+    const result = {
+      isError: true,
+      content: [{ type: "text", text: "error one\nerror two" }],
+      details: {
+        errors: [
+          { line: 1, column: 1, message: "first error" },
+          { line: 2, column: 1, message: "second error" },
+        ],
+      },
+    };
+
+    const collapsed = tool.renderResult(result, { expanded: false, isPartial: false }, theme, {});
+    const expanded = tool.renderResult(result, { expanded: true, isPartial: false }, theme, {});
+
+    expect(collapsed.render(80).join("\n")).toContain("first error");
+    expect(collapsed.render(80).join("\n")).toContain("Ctrl+O to expand");
+    expect(collapsed.render(80).join("\n")).not.toContain("second error");
+    expect(expanded.render(80).join("\n")).toContain("Line 2: second error");
+  });
+
   test("uses the configured executor", async () => {
     const tool = createExecuteTool({
       typeDefs: "",

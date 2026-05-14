@@ -145,7 +145,7 @@ Return the final value you want in the result. Prefer return over print for fina
     renderCall(
       args: { code: string; strings?: Record<string, string> },
       theme: { fg: (color: string, text: string) => string; bold: (text: string) => string },
-      _context: unknown,
+      context: unknown,
     ) {
       let text = theme.fg("toolTitle", theme.bold("codemode"));
       const code = args.code?.trim() || "(empty code)";
@@ -156,7 +156,17 @@ Return the final value you want in the result. Prefer return over print for fina
         text += theme.fg("dim", `, ${Object.keys(args.strings).length} string constant(s)`);
       }
 
-      text += "\n" + code;
+      const expanded = Boolean(
+        typeof context === "object" &&
+        context &&
+        "expanded" in context &&
+        (context as { expanded?: unknown }).expanded,
+      );
+      if (expanded || lines.length <= 8) {
+        text += "\n" + code;
+      } else {
+        text += "\n" + collapseMiddle(lines, 4, 4, theme).join("\n");
+      }
 
       if (args.strings && Object.keys(args.strings).length > 0) {
         text += "\n" + theme.fg("dim", "\nString constants:");
@@ -204,7 +214,8 @@ Return the final value you want in the result. Prefer return over print for fina
         const errors = result.details?.errors ?? [];
         const first = errors[0];
         if (!options.expanded) {
-          return new Text(theme.error(`✗ ${first?.message ?? "Error"}`) + elapsed, 0, 0);
+          const hint = errors.length > 1 ? theme.fg("dim", ` (${expandHint("to expand")})`) : "";
+          return new Text(theme.error(`✗ ${first?.message ?? "Error"}`) + hint + elapsed, 0, 0);
         }
         const errorText =
           errors.length > 0
@@ -218,12 +229,8 @@ Return the final value you want in the result. Prefer return over print for fina
       const content = (result.content?.[0]?.text ?? "(no output)").trim();
       const lines = content.split("\n");
       if (!options.expanded && lines.length > 6) {
-        const preview = lines.slice(0, 4).join("\n");
         return new Text(
-          theme.success("✓ ") +
-            preview +
-            theme.fg("dim", `\n... ${lines.length - 4} more lines`) +
-            elapsed,
+          theme.success("✓ ") + collapseMiddle(lines, 3, 3, theme).join("\n") + elapsed,
           0,
           0,
         );
@@ -232,6 +239,24 @@ Return the final value you want in the result. Prefer return over print for fina
       return new Text(theme.success("✓ ") + content + elapsed, 0, 0);
     },
   } as unknown as ToolDefinition;
+}
+
+function collapseMiddle(
+  lines: string[],
+  headCount: number,
+  tailCount: number,
+  theme: { fg: (color: string, text: string) => string },
+): string[] {
+  const hiddenCount = lines.length - headCount - tailCount;
+  return [
+    ...lines.slice(0, headCount),
+    theme.fg("dim", `... ${hiddenCount} lines hidden (${expandHint("to expand")})`),
+    ...lines.slice(-tailCount),
+  ];
+}
+
+function expandHint(description: "to expand" | "to collapse"): string {
+  return `Ctrl+O ${description}`;
 }
 
 /**
