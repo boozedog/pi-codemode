@@ -1,4 +1,19 @@
 {
+  "mcp": {
+    "servers": {
+      "chrome-devtools-mcp": {
+        "command": "sfw",
+        "args": [
+          "npx",
+          "-y",
+          "chrome-devtools-mcp@latest",
+          "--isolated=true",
+          "--no-usage-statistics"
+        ],
+        "debug": true
+      }
+    }
+  },
   "cli": {
     "git": {
       "backend": "host",
