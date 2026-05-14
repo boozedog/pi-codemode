@@ -36,9 +36,10 @@ describe("package metadata", () => {
     expect(pkg.scripts?.prepare).toBe("npm run build");
   });
 
-  test("provides a tag-based publish script", () => {
+  test("provides a release helper and tag-based publish script", () => {
     const pkg = packageJson();
 
+    expect(pkg.scripts?.release).toBe("./scripts/release.sh");
     expect(pkg.scripts?.["publish:tag"]).toBe(
       "npm run check && npm run check:clean-tree && npm pack --dry-run && git tag v$npm_package_version && git push origin v$npm_package_version",
     );
@@ -76,7 +77,8 @@ describe("tag-based distribution docs", () => {
     expect(readme).toContain("Recommended install: tagged GitHub release");
     expect(readme).toContain("pi install git:github.com/boozedog/pi-codemode@v0.1.1");
     expect(readme).toContain("pi update git:github.com/boozedog/pi-codemode");
-    expect(readme).toContain("npm run publish:tag");
+    expect(readme).toContain("npm run release -- --version 0.1.3");
+    expect(readme).toContain("npm run release");
     expect(readme).toContain("v$npm_package_version");
   });
 });

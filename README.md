@@ -347,16 +347,22 @@ Source lives in `src/`; generated build output lives in `dist/`.
 
 ## Release checklist
 
-1. Run `npm run check`.
-2. Confirm package contents with `npm pack --dry-run`; the tarball should include `dist/index.js`, `README.md`, `LICENSE`, and `package.json`.
-3. Create and push the version tag with the npm script:
+To bump the version, run the release helper from a clean tree:
 
-   ```sh
-   npm run publish:tag
-   ```
+```sh
+npm run release -- --version 0.1.3
+```
 
-   The script runs checks, fails if the git working tree has unstaged or staged changes, verifies package contents with `npm pack --dry-run`, then creates and pushes `v$npm_package_version` (for example `v0.1.1`).
+To publish the current `package.json` version without bumping:
 
-4. From a clean directory or machine, install the tag with `pi install git:github.com/boozedog/pi-codemode@<tag>`.
-5. Start Pi and confirm Codemode loads, `execute_tools` can read files, typed CLI/shell capabilities work, and the result UI renders.
-6. Optional later: publish the same version to npm with `npm publish --access public`.
+```sh
+npm run release
+```
+
+The helper checks for a clean tree, updates `package.json`/`package-lock.json` when `--version` is provided, runs `npm run check`, commits the version bump, verifies package contents with `npm pack --dry-run`, then creates and pushes `v$npm_package_version`.
+
+After the tag is pushed:
+
+1. From a clean directory or machine, install the tag with `pi install git:github.com/boozedog/pi-codemode@<tag>`.
+2. Start Pi and confirm Codemode loads, `execute_tools` can read files, typed CLI/shell capabilities work, and the result UI renders.
+3. Optional later: publish the same version to npm with `npm publish --access public`.
