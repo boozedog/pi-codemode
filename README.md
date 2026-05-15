@@ -99,6 +99,8 @@ Each `cli` tool/operation must be allowlisted in config. Backends may be native 
 
 Host command output is capped inline at 50 KiB per stream, with a truncation marker when exceeded. Non-zero command exits do not throw; inspect `exitCode`. Denied operations, missing executables, timeouts, and invalid runtime argument shapes throw clear CLI errors.
 
+GitHub issue relationship operations are intentionally curated. Codemode exposes narrow helpers matching GitHub's first-class issue dependency endpoint names: `cli.gh.issueListBlockedBy()`, `cli.gh.issueAddBlockedBy()`, and `cli.gh.issueListBlocking()`. These are backed by `GET/POST /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocked_by` and `GET /repos/{owner}/{repo}/issues/{issue_number}/dependencies/blocking`. Codemode does not expose generic `gh api` or arbitrary GraphQL execution to generated code; host code constructs the exact endpoint and resolves blocking issue numbers to same-repository REST database IDs internally.
+
 ### npm script decomposition
 
 Codemode treats npm scripts as recipes to inspect, not shell commands to execute. Generated code should not call `npm`, `npx`, `node`, `bash`, or other abstraction layers directly. Instead, use the codemode npm-script helpers:

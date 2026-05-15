@@ -569,6 +569,82 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         ...repo(args),
       ],
     },
+    issueListBlockedBy: {
+      effect: "external",
+      description: "GitHub issue blocked_by list. List issues that block an issue.",
+      docs: "List first-class GitHub issues that block an issue through the curated dependencies/blocked_by endpoint. Does not expose generic gh api access.",
+      params: ["number", "repo", "github", "issue", "dependencies", "blocked_by"],
+      inputSchema: obj(
+        {
+          number: n("Issue number."),
+          repo: s("Repository in OWNER/REPO format."),
+        },
+        ["number"],
+      ),
+      toArgv: (args) => [
+        "api",
+        `${repoApiPath(args.repo)}/issues/${requiredNumber(args, "number")}/dependencies/blocked_by`,
+      ],
+    },
+    issueAddBlockedBy: {
+      effect: "external",
+      description: "GitHub issue blocked_by add. Add an issue that blocks another issue.",
+      docs: "Add a first-class GitHub blocked_by issue dependency through the curated dependencies/blocked_by endpoint. Resolves the blocking issue number within the same repository; no REST database id is accepted from guest code.",
+      params: ["number", "blockingNumber", "repo", "github", "issue", "dependencies", "blocked_by"],
+      inputSchema: obj(
+        {
+          number: n("Issue number that is blocked."),
+          blockingNumber: n("Issue number that blocks this issue, in the same repository."),
+          repo: s("Repository in OWNER/REPO format."),
+        },
+        ["number", "blockingNumber"],
+      ),
+      toArgv: (args) => [
+        "api",
+        `${repoApiPath(args.repo)}/issues/${requiredNumber(args, "number")}/dependencies/blocked_by`,
+        "--method",
+        "POST",
+        "--field",
+        `issue_id={issue-id-for-issue-${requiredNumber(args, "blockingNumber")}}`,
+      ],
+    },
+    issueRemoveBlockedBy: {
+      effect: "external",
+      description: "GitHub issue blocked_by remove. Remove an issue that blocks another issue.",
+      docs: "Remove a first-class GitHub blocked_by issue dependency through the curated dependencies/blocked_by endpoint. Resolves the blocking issue number within the same repository; no REST database id is accepted from guest code.",
+      params: ["number", "blockingNumber", "repo", "github", "issue", "dependencies", "blocked_by"],
+      inputSchema: obj(
+        {
+          number: n("Issue number that is blocked."),
+          blockingNumber: n("Issue number that blocks this issue, in the same repository."),
+          repo: s("Repository in OWNER/REPO format."),
+        },
+        ["number", "blockingNumber"],
+      ),
+      toArgv: (args) => [
+        "api",
+        `${repoApiPath(args.repo)}/issues/${requiredNumber(args, "number")}/dependencies/blocked_by/{issue-id-for-issue-${requiredNumber(args, "blockingNumber")}}`,
+        "--method",
+        "DELETE",
+      ],
+    },
+    issueListBlocking: {
+      effect: "external",
+      description: "GitHub issue blocking list. List issues blocked by an issue.",
+      docs: "List first-class GitHub issues that are blocked by an issue through the curated dependencies/blocking endpoint. Does not expose generic gh api access.",
+      params: ["number", "repo", "github", "issue", "dependencies", "blocking"],
+      inputSchema: obj(
+        {
+          number: n("Issue number."),
+          repo: s("Repository in OWNER/REPO format."),
+        },
+        ["number"],
+      ),
+      toArgv: (args) => [
+        "api",
+        `${repoApiPath(args.repo)}/issues/${requiredNumber(args, "number")}/dependencies/blocking`,
+      ],
+    },
     labelCreate: {
       effect: "external",
       description: "GitHub label create. Create a GitHub repository label.",
@@ -960,6 +1036,12 @@ function repo(args: Record<string, unknown>): string[] {
   if (args.repo === undefined) return [];
   if (typeof args.repo !== "string") throw new Error("repo must be a string");
   return ["--repo", args.repo];
+}
+function repoApiPath(value: unknown): string {
+  if (value === undefined) return "repos/{owner}/{repo}";
+  if (typeof value !== "string") throw new Error("repo must be a string");
+  if (!/^[^/]+\/[^/]+$/.test(value)) throw new Error("repo must be in OWNER/REPO format");
+  return `repos/${value}`;
 }
 function json(args: Record<string, unknown>, defaults: string[] = []): string[] {
   if (args.json === undefined && defaults.length === 0) return [];

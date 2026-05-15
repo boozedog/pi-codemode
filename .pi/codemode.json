@@ -10,7 +10,7 @@
           "--isolated=true",
           "--no-usage-statistics"
         ],
-        "debug": true
+        "debug": false
       }
     }
   },
@@ -52,7 +52,11 @@
         "labelList",
         "issueEdit",
         "issueComment",
-        "issueClose"
+        "issueClose",
+        "issueListBlockedBy",
+        "issueAddBlockedBy",
+        "issueRemoveBlockedBy",
+        "issueListBlocking"
       ]
     },
     "rg": {

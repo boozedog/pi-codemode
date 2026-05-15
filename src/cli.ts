@@ -65,8 +65,22 @@ async function executeCliOperation(
   if (!toolConfig || !configuredOperations(toolConfig).includes(operation)) {
     throw new Error(`CLI operation is not configured: cli.${toolName}.${operation}`);
   }
-  const argv = buildCliArgv(toolName, operation, asArgs(args));
+  const safeArgs = asArgs(args);
   const opConfig = operationConfig(toolConfig, operation);
+  if (toolName === "gh" && isIssueBlockedByMutation(operation)) {
+    if (toolConfig.backend !== "host") {
+      throw new Error(`Operation cli.${toolName}.${operation} requires host backend`);
+    }
+    return executeGhIssueBlockedByMutation(
+      toolConfig.command ?? toolName,
+      projectRoot,
+      operation,
+      safeArgs,
+      opConfig.timeoutMs,
+      signal,
+    );
+  }
+  const argv = buildCliArgv(toolName, operation, safeArgs);
   if (toolConfig.backend === "host") {
     return executeHost(
       toolConfig.command ?? toolName,
@@ -81,6 +95,75 @@ async function executeCliOperation(
   return executeJustBash(projectRoot, quoteCommand([toolName, ...argv]), {
     timeoutMs: opConfig.timeoutMs,
   });
+}
+
+function isIssueBlockedByMutation(operation: string): boolean {
+  return operation === "issueAddBlockedBy" || operation === "issueRemoveBlockedBy";
+}
+
+async function executeGhIssueBlockedByMutation(
+  command: string,
+  cwd: string,
+  operation: string,
+  args: Record<string, unknown>,
+  timeoutMs = 30_000,
+  signal?: AbortSignal,
+): Promise<CommandResult> {
+  validateArgs(getCliOperationDefinition("gh", operation)!.inputSchema, args);
+  const blockingNumber = requiredIntegerArg(args, "blockingNumber");
+  const issueResult = await executeHost(
+    command,
+    ["api", ...repoApiIssuePath(args.repo, blockingNumber), "--jq", ".id"],
+    cwd,
+    "gh",
+    operation,
+    timeoutMs,
+    signal,
+  );
+  if (issueResult.exitCode !== 0) return issueResult;
+  const issueId = issueResult.stdout.trim();
+  if (!/^\d+$/.test(issueId)) {
+    throw new Error(`Could not resolve REST database id for issue #${blockingNumber}`);
+  }
+  const number = requiredIntegerArg(args, "number");
+  const endpoint = [
+    "api",
+    ...repoApiDependencyPath(
+      args.repo,
+      number,
+      operation === "issueRemoveBlockedBy" ? issueId : undefined,
+    ),
+  ];
+  const argv =
+    operation === "issueAddBlockedBy"
+      ? [...endpoint, "--method", "POST", "--field", `issue_id=${issueId}`]
+      : [...endpoint, "--method", "DELETE"];
+  return executeHost(command, argv, cwd, "gh", operation, timeoutMs, signal);
+}
+
+function requiredIntegerArg(args: Record<string, unknown>, key: string): number {
+  const value = args[key];
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new Error(`${key} must be an integer`);
+  }
+  return value;
+}
+
+function repoApiIssuePath(repo: unknown, issueNumber: number): string[] {
+  return [`${repoApiPath(repo)}/issues/${issueNumber}`];
+}
+
+function repoApiDependencyPath(repo: unknown, issueNumber: number, issueId?: string): string[] {
+  return [
+    `${repoApiPath(repo)}/issues/${issueNumber}/dependencies/blocked_by${issueId ? `/${issueId}` : ""}`,
+  ];
+}
+
+function repoApiPath(repo: unknown): string {
+  if (repo === undefined) return "repos/{owner}/{repo}";
+  if (typeof repo !== "string") throw new Error("repo must be a string");
+  if (!/^[^/]+\/[^/]+$/.test(repo)) throw new Error("repo must be in OWNER/REPO format");
+  return `repos/${repo}`;
 }
 
 export function buildCliArgv(

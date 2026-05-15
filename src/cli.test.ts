@@ -70,6 +70,37 @@ describe("cli command capabilities", () => {
     );
   });
 
+  test("type definitions expose only curated GitHub issue relationship operations", () => {
+    const types = generateBuiltinTypeDefs({
+      cli: {
+        gh: {
+          backend: "host",
+          operations: [
+            "issueListBlockedBy",
+            "issueAddBlockedBy",
+            "issueRemoveBlockedBy",
+            "issueListBlocking",
+          ],
+        },
+      },
+    });
+
+    expect(types).toContain(
+      "issueListBlockedBy(args: { number: number; repo?: string; }): Promise<CommandResult>;",
+    );
+    expect(types).toContain(
+      "issueAddBlockedBy(args: { number: number; blockingNumber: number; repo?: string; }): Promise<CommandResult>;",
+    );
+    expect(types).toContain(
+      "issueRemoveBlockedBy(args: { number: number; blockingNumber: number; repo?: string; }): Promise<CommandResult>;",
+    );
+    expect(types).toContain(
+      "issueListBlocking(args: { number: number; repo?: string; }): Promise<CommandResult>;",
+    );
+    expect(types).not.toContain("api(args");
+    expect(types).not.toContain("graphql(args");
+  });
+
   test("host commands automatically parse valid JSON output", async () => {
     const cwd = tempProject();
     writeFileSync(
@@ -367,6 +398,40 @@ describe("cli command capabilities", () => {
       }),
     ).toEqual(["issue", "comment", "21", "--body", "Depends on #22.", "--repo", "owner/repo"]);
     expect(buildCliArgv("gh", "issueClose", { number: 22 })).toEqual(["issue", "close", "22"]);
+    expect(buildCliArgv("gh", "issueListBlockedBy", { number: 22 })).toEqual([
+      "api",
+      "repos/{owner}/{repo}/issues/22/dependencies/blocked_by",
+    ]);
+    expect(buildCliArgv("gh", "issueListBlocking", { number: 22 })).toEqual([
+      "api",
+      "repos/{owner}/{repo}/issues/22/dependencies/blocking",
+    ]);
+    expect(
+      buildCliArgv("gh", "issueAddBlockedBy", {
+        number: 22,
+        blockingNumber: 21,
+        repo: "owner/repo",
+      }),
+    ).toEqual([
+      "api",
+      "repos/owner/repo/issues/22/dependencies/blocked_by",
+      "--method",
+      "POST",
+      "--field",
+      "issue_id={issue-id-for-issue-21}",
+    ]);
+    expect(
+      buildCliArgv("gh", "issueRemoveBlockedBy", {
+        number: 22,
+        blockingNumber: 21,
+        repo: "owner/repo",
+      }),
+    ).toEqual([
+      "api",
+      "repos/owner/repo/issues/22/dependencies/blocked_by/{issue-id-for-issue-21}",
+      "--method",
+      "DELETE",
+    ]);
     expect(
       buildCliArgv("gh", "issueClose", {
         number: 22,
