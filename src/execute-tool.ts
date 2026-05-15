@@ -148,7 +148,7 @@ Return the final value you want in the result. Prefer return over print for fina
       context: unknown,
     ) {
       let text = theme.fg("toolTitle", theme.bold("codemode"));
-      const code = args.code?.trim() || "(empty code)";
+      const code = prettyPrintCodeForDisplay(args.code?.trim() || "(empty code)");
       const lines = code.split("\n");
       text += theme.fg("dim", `  ${lines.length} line${lines.length === 1 ? "" : "s"}`);
 
@@ -253,6 +253,71 @@ function collapseMiddle(
     theme.fg("dim", `... ${hiddenCount} lines hidden (${expandHint("to expand")})`),
     ...lines.slice(-tailCount),
   ];
+}
+
+function prettyPrintCodeForDisplay(code: string): string {
+  if (code.includes("\n")) return code;
+
+  const lines: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | "`" | undefined;
+  let escaping = false;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let i = 0; i < code.length; i++) {
+    const char = code[i] ?? "";
+    const next = code[i + 1] ?? "";
+    current += char;
+
+    if (lineComment) {
+      continue;
+    }
+    if (blockComment) {
+      if (char === "*" && next === "/") {
+        current += next;
+        i++;
+        blockComment = false;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escaping) {
+        escaping = false;
+      } else if (char === "\\") {
+        escaping = true;
+      } else if (char === quote) {
+        quote = undefined;
+      }
+      continue;
+    }
+
+    if (char === "/" && next === "/") {
+      current += next;
+      i++;
+      lineComment = true;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      current += next;
+      i++;
+      blockComment = true;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === ";" || char === "{" || char === "}") {
+      const line = current.trim();
+      if (line) lines.push(line);
+      current = "";
+    }
+  }
+
+  const tail = current.trim();
+  if (tail) lines.push(tail);
+  return lines.length > 1 ? lines.join("\n") : code;
 }
 
 function expandHint(description: "to expand" | "to collapse"): string {

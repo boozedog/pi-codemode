@@ -125,6 +125,29 @@ describe("createExecuteTool executor selection", () => {
     expect(expanded.render(80).join("\n")).toContain("value19");
   });
 
+  test("pretty-prints single-line codemode calls before rendering", () => {
+    const tool = createExecuteTool({
+      typeDefs: "",
+      bindings,
+      timeout: 1_000,
+      executor: { kind: "quickjs" },
+    }) as {
+      renderCall: (
+        args: { code: string },
+        theme: Theme,
+        context: { expanded: boolean; isPartial: boolean },
+      ) => RenderedComponent;
+    };
+    const theme = createTheme();
+    const code = "const first = 1; const second = 2; return first + second;";
+
+    const rendered = tool.renderCall({ code }, theme, { expanded: true, isPartial: false });
+    const text = rendered.render(80).join("\n");
+
+    expect(text).toContain("3 lines");
+    expect(text).toContain("const first = 1;\nconst second = 2;\nreturn first + second;");
+  });
+
   test("renders long codemode results compact by default with expand hint", () => {
     const tool = createExecuteTool({
       typeDefs: "",
