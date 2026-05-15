@@ -150,6 +150,9 @@ describe("codemodeExtension", () => {
     expect(prompt.systemPrompt).toContain(
       "Prefer `text` for your own reasoning because some transcript/log surfaces show raw ANSI escapes literally",
     );
+    expect(prompt.systemPrompt).toContain(
+      "Write human-readable, nicely formatted TypeScript with normal line breaks",
+    );
     expect(prompt.systemPrompt).toContain("Ctrl+O");
   });
 
