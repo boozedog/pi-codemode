@@ -295,13 +295,13 @@ Allowed capabilities are only the injected globals listed above. File tools vali
 Pi Codemode is distributed through normal Pi extension package installs using GitHub release tags. This does not require cloning this repository to a fixed local path:
 
 ```sh
-pi install git:github.com/boozedog/pi-codemode@v0.1.1
+pi install git:github.com/boozedog/pi-codemode@<tag>
 ```
 
 To try a tagged release for one Pi run without adding it to settings:
 
 ```sh
-pi -e git:github.com/boozedog/pi-codemode@v0.1.1
+pi -e git:github.com/boozedog/pi-codemode@<tag>
 ```
 
 For unpinned development installs from GitHub, update with:

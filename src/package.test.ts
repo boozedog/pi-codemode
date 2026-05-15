@@ -75,7 +75,9 @@ describe("tag-based distribution docs", () => {
     const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
 
     expect(readme).toContain("Recommended install: tagged GitHub release");
-    expect(readme).toContain("pi install git:github.com/boozedog/pi-codemode@v0.1.1");
+    expect(readme).toContain("pi install git:github.com/boozedog/pi-codemode@<tag>");
+    expect(readme).toContain("pi -e git:github.com/boozedog/pi-codemode@<tag>");
+    expect(readme).not.toMatch(/git:github\.com\/boozedog\/pi-codemode@v\d+\.\d+\.\d+/);
     expect(readme).toContain("pi update git:github.com/boozedog/pi-codemode");
     expect(readme).toContain("npm run release -- --version 0.1.3");
     expect(readme).toContain("npm run release");
