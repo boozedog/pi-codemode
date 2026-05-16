@@ -8,6 +8,7 @@ type PackageJson = {
   exports?: Record<string, unknown> | string;
   files?: string[];
   scripts?: Record<string, string>;
+  keywords?: string[];
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
@@ -47,6 +48,15 @@ describe("package metadata", () => {
     expect(pkg.scripts?.["check:clean-tree"]).toContain("git status --short");
   });
 
+  test("provides an npm publish helper for Pi package catalog discovery", () => {
+    const pkg = packageJson();
+
+    expect(pkg.keywords).toEqual(expect.arrayContaining(["pi-package"]));
+    expect(pkg.scripts?.["publish:npm"]).toBe(
+      "npm run check && npm run check:clean-tree && npm pack --dry-run && npm publish --access public",
+    );
+  });
+
   test("keeps runtime imports installable and Pi APIs as peers", () => {
     const pkg = packageJson();
 
@@ -74,7 +84,7 @@ describe("tag-based distribution docs", () => {
   test("documents GitHub tag installs as the primary Pi extension path", () => {
     const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
 
-    expect(readme).toContain("Recommended install: tagged GitHub release");
+    expect(readme).toContain("Alternative install: tagged GitHub release");
     expect(readme).toContain("pi install git:github.com/boozedog/pi-codemode@<tag>");
     expect(readme).toContain("pi -e git:github.com/boozedog/pi-codemode@<tag>");
     expect(readme).not.toMatch(/git:github\.com\/boozedog\/pi-codemode@v\d+\.\d+\.\d+/);
@@ -82,5 +92,14 @@ describe("tag-based distribution docs", () => {
     expect(readme).toContain("npm run release -- --version 0.1.3");
     expect(readme).toContain("npm run release");
     expect(readme).toContain("v$npm_package_version");
+  });
+
+  test("documents npm publishing for pi.dev package catalog discovery", () => {
+    const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
+
+    expect(readme).toContain("Publish to npm for pi.dev catalog discovery");
+    expect(readme).toContain("npm run publish:npm");
+    expect(readme).toContain("pi-package");
+    expect(readme).toContain("pi install npm:@boozedog/pi-codemode");
   });
 });

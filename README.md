@@ -290,7 +290,21 @@ Allowed capabilities are only the injected globals listed above. File tools vali
 
 ## Installation
 
-### Recommended install: tagged GitHub release
+### Recommended install: npm package
+
+Pi Codemode is published as a Pi package on npm and is discoverable in the `pi.dev` package catalog because `package.json` includes the `pi-package` keyword and a Pi extension manifest.
+
+```sh
+pi install npm:@boozedog/pi-codemode
+```
+
+To try the npm package for one Pi run without adding it to settings:
+
+```sh
+pi -e npm:@boozedog/pi-codemode
+```
+
+### Alternative install: tagged GitHub release
 
 Pi Codemode is distributed through normal Pi extension package installs using GitHub release tags. This does not require cloning this repository to a fixed local path:
 
@@ -310,13 +324,6 @@ For unpinned development installs from GitHub, update with:
 pi update git:github.com/boozedog/pi-codemode
 # or update all Pi extensions
 pi update --extensions
-```
-
-An npm package can be added later if needed:
-
-```sh
-pi install npm:@boozedog/pi-codemode
-pi -e npm:@boozedog/pi-codemode
 ```
 
 For local development, keep using a path install from this checkout:
@@ -367,4 +374,14 @@ After the tag is pushed:
 
 1. From a clean directory or machine, install the tag with `pi install git:github.com/boozedog/pi-codemode@<tag>`.
 2. Start Pi and confirm Codemode loads, `execute_tools` can read files, typed CLI/shell capabilities work, and the result UI renders.
-3. Optional later: publish the same version to npm with `npm publish --access public`.
+3. Publish the same version to npm for the Pi package catalog.
+
+### Publish to npm for pi.dev catalog discovery
+
+Make sure you are logged in to npm as an account with publish rights for `@boozedog/pi-codemode`, then run:
+
+```sh
+npm run publish:npm
+```
+
+The publish helper runs checks, verifies the tree is clean, dry-runs the package tarball, and publishes with `--access public`. Once npm indexes the package, `https://pi.dev/packages` discovers it from the `pi-package` keyword.
