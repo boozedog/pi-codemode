@@ -50,7 +50,7 @@ function createPiMock() {
     registerCommand: vi.fn((name: string, command: { handler: Handler }) =>
       commands.set(name, command),
     ),
-    getActiveTools: vi.fn(() => ["read", "write", "replace_in_file", "apply_patch", "bash"]),
+    getActiveTools: vi.fn(() => ["read", "write", "bash"]),
     getAllTools: vi.fn(() => [
       { name: "read", description: "Read files" },
       { name: "codemode", description: "Run codemode" },
@@ -317,6 +317,29 @@ describe("codemodeExtension", () => {
     expect(prompt.systemPrompt).toContain("## Native Tool Guidance");
   });
 
+  test("off mode deactivates codemode tools if Pi includes newly registered tools as active", async () => {
+    loadConfig.mockReturnValue({
+      mode: "off",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    });
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, ctx } = createPiMock();
+    pi.getActiveTools.mockReturnValue([
+      "read",
+      "write",
+      "replace_in_file",
+      "apply_patch",
+      "codemode",
+      "bash",
+    ]);
+    codemodeExtension(pi as never);
+
+    await handlers.get("session_start")?.({}, ctx);
+
+    expect(pi.setActiveTools).toHaveBeenCalledWith(["read", "write", "bash"]);
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode off — normal Pi tools active", "info");
+  });
+
   test("yolo mode degrades when native bash is unavailable", async () => {
     const { default: codemodeExtension } = await import("./index.js");
     const { pi, handlers, ctx } = createPiMock();
@@ -378,13 +401,7 @@ describe("codemodeExtension", () => {
       "apply_patch",
       "codemode",
     ]);
-    expect(pi.setActiveTools).toHaveBeenNthCalledWith(3, [
-      "read",
-      "write",
-      "replace_in_file",
-      "apply_patch",
-      "bash",
-    ]);
+    expect(pi.setActiveTools).toHaveBeenNthCalledWith(3, ["read", "write", "bash"]);
     expect(pi.setActiveTools).toHaveBeenNthCalledWith(4, [
       "read",
       "write",

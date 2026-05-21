@@ -221,10 +221,17 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   }
 
   function deactivateCodemode() {
-    if (currentMode !== "off" && originalTools.length > 0) {
-      pi.setActiveTools(originalTools);
+    const nativeTools = originalTools.filter((tool) => !codemodeOwnedTools().includes(tool));
+    if (currentMode !== "off" && nativeTools.length > 0) {
+      pi.setActiveTools(nativeTools);
+    } else if (currentMode === "off" && nativeTools.length !== originalTools.length) {
+      pi.setActiveTools(nativeTools);
     }
     currentMode = "off";
+  }
+
+  function codemodeOwnedTools() {
+    return ["codemode", "replace_in_file", "apply_patch"];
   }
 }
 
