@@ -42,15 +42,20 @@ log "checking clean working tree"
 npm run check:clean-tree
 
 if [ -n "$VERSION" ]; then
-  log "setting npm package version to $VERSION"
-  npm version "$VERSION" --no-git-tag-version
+  CURRENT_VERSION="$(node -p "require('./package.json').version")"
+  if [ "$CURRENT_VERSION" = "$VERSION" ]; then
+    log "package version is already $VERSION"
+  else
+    log "setting npm package version to $VERSION"
+    npm version "$VERSION" --no-git-tag-version
 
-  log "running full checks"
-  npm run check
+    log "running full checks"
+    npm run check
 
-  log "committing version bump"
-  git add package.json package-lock.json
-  git commit -m "chore: bump version to $VERSION"
+    log "committing version bump"
+    git add package.json package-lock.json
+    git commit -m "chore: bump version to $VERSION"
+  fi
 else
   log "using current package version"
 fi
