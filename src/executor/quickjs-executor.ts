@@ -2,7 +2,10 @@
 
 import ts from "typescript";
 import releaseSyncVariant from "@jitl/quickjs-singlefile-mjs-release-sync";
-import { newQuickJSWASMModuleFromVariant, shouldInterruptAfterDeadline } from "quickjs-emscripten-core";
+import {
+  newQuickJSWASMModuleFromVariant,
+  shouldInterruptAfterDeadline,
+} from "quickjs-emscripten-core";
 import type { CodeExecutor, ExecuteResult, ExecutionProvider } from "./types.js";
 
 type HostFn = (args: unknown) => unknown | Promise<unknown>;
