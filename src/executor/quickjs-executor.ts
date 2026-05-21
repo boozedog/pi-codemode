@@ -1,10 +1,20 @@
 // quickjs-executor.ts — Direct QuickJS sandbox executor.
 
 import ts from "typescript";
-import { getQuickJS, shouldInterruptAfterDeadline } from "quickjs-emscripten";
+import releaseSyncVariant from "@jitl/quickjs-singlefile-mjs-release-sync";
+import { newQuickJSWASMModuleFromVariant, shouldInterruptAfterDeadline } from "quickjs-emscripten-core";
 import type { CodeExecutor, ExecuteResult, ExecutionProvider } from "./types.js";
 
 type HostFn = (args: unknown) => unknown | Promise<unknown>;
+
+type QuickJsModule = Awaited<ReturnType<typeof newQuickJSWASMModuleFromVariant>>;
+
+let quickJsPromise: Promise<QuickJsModule> | undefined;
+
+function getSinglefileQuickJS(): Promise<QuickJsModule> {
+  quickJsPromise ??= newQuickJSWASMModuleFromVariant(releaseSyncVariant);
+  return quickJsPromise;
+}
 
 export interface QuickJsExecutorOptions {
   /** Max execution time in ms (default: 120000 = 2 minutes) */
@@ -31,7 +41,7 @@ export class QuickJsExecutor implements CodeExecutor {
       return { result: undefined, error: "Execution cancelled", logs: [] };
     }
 
-    const QuickJS = await getQuickJS();
+    const QuickJS = await getSinglefileQuickJS();
     const vm = QuickJS.newContext();
     const runtime = vm.runtime;
     runtime.setInterruptHandler(shouldInterruptAfterDeadline(Date.now() + this.#timeout));
@@ -61,6 +71,7 @@ export class QuickJsExecutor implements CodeExecutor {
         };
         options?.signal?.addEventListener("abort", abortHandler, { once: true });
       });
+      cancellation.catch(() => undefined);
 
       const hostCall = vm.newFunction("__hostCall", (nameHandle, argsHandle) => {
         const name = vm.getString(nameHandle);
@@ -156,6 +167,12 @@ export class QuickJsExecutor implements CodeExecutor {
         return { result: undefined, error: formatDump(err), logs };
       }
       setup.value.dispose();
+
+      await new Promise((resolve) => setImmediate(resolve));
+      if (options?.signal?.aborted) {
+        cancelled = true;
+        return { result: undefined, error: "Execution cancelled", logs };
+      }
 
       const js = transpileUserCode(code);
       const wrapped = `(async function() {\n${js}\n})()`;

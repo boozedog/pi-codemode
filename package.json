@@ -46,10 +46,11 @@
     "release": "./scripts/release.sh"
   },
   "dependencies": {
+    "@jitl/quickjs-singlefile-mjs-release-sync": "^0.32.0",
     "just-bash": "3.0.0",
     "minisearch": "^7.2.0",
     "pi-mcp-adapter": "2.5.4",
-    "quickjs-emscripten": "^0.32.0",
+    "quickjs-emscripten-core": "^0.32.0",
     "typescript": "^6.0.3"
   },
   "devDependencies": {

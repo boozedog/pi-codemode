@@ -65,7 +65,8 @@ describe("package metadata", () => {
         "just-bash": expect.any(String),
         minisearch: expect.any(String),
         "pi-mcp-adapter": expect.any(String),
-        "quickjs-emscripten": expect.any(String),
+        "@jitl/quickjs-singlefile-mjs-release-sync": expect.any(String),
+        "quickjs-emscripten-core": expect.any(String),
         typescript: expect.any(String),
       }),
     );
