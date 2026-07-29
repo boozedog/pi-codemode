@@ -25,18 +25,12 @@ interface RenderedComponent {
 
 interface Theme {
   fg(color: string, text: string): string;
-  error(text: string): string;
-  success(text: string): string;
-  warning(text: string): string;
   bold(text: string): string;
 }
 
 function createTheme(): Theme {
   return {
     fg: (_color, text) => text,
-    error: (text) => text,
-    success: (text) => text,
-    warning: (text) => text,
     bold: (text) => text,
   };
 }

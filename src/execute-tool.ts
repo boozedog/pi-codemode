@@ -193,11 +193,9 @@ Return the final value you want in the result. Prefer return over print for fina
       options: { expanded: boolean; isPartial: boolean },
       theme: {
         fg: (color: string, text: string) => string;
-        error: (text: string) => string;
-        success: (text: string) => string;
-        warning: (text: string) => string;
+        bold?: (text: string) => string;
       },
-      _context: unknown,
+      context: unknown,
     ) {
       if (options.isPartial) {
         const msg = result.details?.progress
@@ -210,12 +208,26 @@ Return the final value you want in the result. Prefer return over print for fina
         ? ` ${theme.fg("dim", `(${Math.round(result.details.elapsedMs)}ms)`)}`
         : "";
 
-      if (result.isError) {
+      // Pi puts isError on render context, not the result object passed to renderResult.
+      const isError =
+        result.isError === true ||
+        Boolean(
+          typeof context === "object" &&
+          context &&
+          "isError" in context &&
+          (context as { isError?: unknown }).isError,
+        );
+
+      if (isError) {
         const errors = result.details?.errors ?? [];
         const first = errors[0];
         if (!options.expanded) {
           const hint = errors.length > 1 ? theme.fg("dim", ` (${expandHint("to expand")})`) : "";
-          return new Text(theme.error(`✗ ${first?.message ?? "Error"}`) + hint + elapsed, 0, 0);
+          return new Text(
+            theme.fg("error", `✗ ${first?.message ?? "Error"}`) + hint + elapsed,
+            0,
+            0,
+          );
         }
         const errorText =
           errors.length > 0
@@ -223,20 +235,20 @@ Return the final value you want in the result. Prefer return over print for fina
                 .map((error) => `${error.line > 0 ? `Line ${error.line}: ` : ""}${error.message}`)
                 .join("\n")
             : (result.content?.[0]?.text ?? "Error");
-        return new Text(theme.error(errorText) + elapsed, 0, 0);
+        return new Text(theme.fg("error", errorText) + elapsed, 0, 0);
       }
 
       const content = (result.content?.[0]?.text ?? "(no output)").trim();
       const lines = content.split("\n");
       if (!options.expanded && lines.length > 6) {
         return new Text(
-          theme.success("✓ ") + collapseMiddle(lines, 3, 3, theme).join("\n") + elapsed,
+          theme.fg("success", "✓ ") + collapseMiddle(lines, 3, 3, theme).join("\n") + elapsed,
           0,
           0,
         );
       }
 
-      return new Text(theme.success("✓ ") + content + elapsed, 0, 0);
+      return new Text(theme.fg("success", "✓ ") + content + elapsed, 0, 0);
     },
   } as unknown as ToolDefinition;
 }
