@@ -165,8 +165,9 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
   pi.registerCommand("codemode", {
     description: "Set code mode: on, yolo, off (bare toggles off <-> on)",
-    handler: async (args: string[], ctx: ExtensionContext) => {
-      const requested = args[0] as CodemodeMode | undefined;
+    handler: async (args: string, ctx: ExtensionContext) => {
+      // Pi passes the raw text after `/codemode` as one string, e.g. "yolo".
+      const requested = args.trim().split(/\s+/).find(Boolean) as CodemodeMode | undefined;
       if (requested && !["off", "on", "yolo"].includes(requested)) {
         ctx.ui.notify("Usage: /codemode [on|yolo|off]", "warning");
         return;

@@ -26,7 +26,8 @@ declare module "@mariozechner/pi-coding-agent" {
 
   export interface CommandOptions {
     description: string;
-    handler: (args: string[], ctx: ExtensionContext) => Promise<void>;
+    /** Raw argument text after the command name (Pi does not split into argv). */
+    handler: (args: string, ctx: ExtensionContext) => Promise<void>;
   }
 
   export interface ToolDefinition {

@@ -382,9 +382,10 @@ describe("codemodeExtension", () => {
     codemodeExtension(pi as never);
     await handlers.get("session_start")?.({}, ctx);
 
-    await commands.get("codemode")?.handler(["on"], ctx);
-    await commands.get("codemode")?.handler(["off"], ctx);
-    await commands.get("codemode")?.handler([], ctx);
+    // Pi passes the raw argument string after the command name, not string[].
+    await commands.get("codemode")?.handler("on", ctx);
+    await commands.get("codemode")?.handler("off", ctx);
+    await commands.get("codemode")?.handler("", ctx);
 
     expect(pi.setActiveTools).toHaveBeenNthCalledWith(1, [
       "read",
@@ -408,6 +409,32 @@ describe("codemodeExtension", () => {
       "replace_in_file",
       "apply_patch",
       "codemode",
+    ]);
+  });
+
+  test("/codemode yolo enables yolo mode from Pi's string args", async () => {
+    loadConfig.mockReturnValue({
+      mode: "on",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    });
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, commands, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+    await handlers.get("session_start")?.({}, ctx);
+    ctx.ui.notify.mockClear();
+    pi.setActiveTools.mockClear();
+
+    await commands.get("codemode")?.handler("yolo", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode yolo mode enabled", "info");
+    expect(ctx.ui.notify).not.toHaveBeenCalledWith("Usage: /codemode [on|yolo|off]", "warning");
+    expect(pi.setActiveTools).toHaveBeenCalledWith([
+      "read",
+      "write",
+      "replace_in_file",
+      "apply_patch",
+      "codemode",
+      "bash",
     ]);
   });
 
