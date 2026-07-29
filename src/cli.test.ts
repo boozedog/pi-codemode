@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +24,11 @@ function tempProject() {
   const dir = mkdtempSync(join(tmpdir(), "pi-codemode-cli-test-"));
   dirs.push(dir);
   return dir;
+}
+
+/** Resolve a coreutil on PATH (NixOS has no /bin/echo or /usr/bin/true). */
+function systemCommand(name: string): string {
+  return execFileSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).trim();
 }
 
 describe("cli command capabilities", () => {
@@ -564,7 +570,7 @@ describe("cli command capabilities", () => {
       `return await cli.ls.list({ path: ${JSON.stringify("x".repeat(60 * 1024))} });`,
       {
         cli: createCliBindings(
-          { ls: { backend: "host", command: "/bin/echo", operations: ["list"] } },
+          { ls: { backend: "host", command: systemCommand("echo"), operations: ["list"] } },
           cwd,
         ),
       },
@@ -632,7 +638,7 @@ describe("cli command capabilities", () => {
       "return await cli.git.status({});",
       {
         cli: createCliBindings(
-          { git: { backend: "host", command: "/usr/bin/false", operations: ["status"] } },
+          { git: { backend: "host", command: systemCommand("false"), operations: ["status"] } },
           cwd,
         ),
       },

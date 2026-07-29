@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,6 +32,11 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
+/** Resolve a coreutil on PATH (NixOS has no /bin/echo or /usr/bin/true). */
+function systemCommand(name: string): string {
+  return execFileSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).trim();
+}
+
 function tempProject() {
   const dir = mkdtempSync(join(tmpdir(), "pi-codemode-tool-bindings-test-"));
   dirs.push(dir);
@@ -59,7 +65,7 @@ describe("createToolBindings MCP discovery", () => {
     const bindings = createToolBindings({
       cwd,
       mcpServers,
-      cli: { tsc: { backend: "host", command: "/usr/bin/true", operations: ["build"] } },
+      cli: { tsc: { backend: "host", command: systemCommand("true"), operations: ["build"] } },
     });
 
     await expect(bindings.run_npm_script({ script: "build" })).resolves.toContain(
@@ -73,7 +79,7 @@ describe("createToolBindings MCP discovery", () => {
     const bindings = createToolBindings({
       cwd,
       mcpServers,
-      cli: { tsc: { backend: "host", command: "/bin/echo", operations: ["build"] } },
+      cli: { tsc: { backend: "host", command: systemCommand("echo"), operations: ["build"] } },
     });
 
     const compact = await bindings.run_npm_script({ script: "dev" });
@@ -89,7 +95,7 @@ describe("createToolBindings MCP discovery", () => {
     const bindings = createToolBindings({
       cwd,
       mcpServers,
-      cli: { tsc: { backend: "host", command: "/usr/bin/false", operations: ["build"] } },
+      cli: { tsc: { backend: "host", command: systemCommand("false"), operations: ["build"] } },
     });
 
     await expect(bindings.run_npm_script({ script: "build" })).resolves.toContain(
