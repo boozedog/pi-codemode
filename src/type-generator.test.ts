@@ -87,4 +87,58 @@ describe("MCP server type definitions", () => {
     expect(typeDefs).toContain("q: string;");
     expect(typeDefs).toContain("limit?: number;");
   });
+
+  test("parenthesizes array item unions so enum arrays type-check", () => {
+    // Regression: without parens, TS parses `"a" | "b"[]` as `"a" | ("b"[])`.
+    const typeDefs = generateMcpServerTypeDefs([
+      {
+        serverName: "firecrawl",
+        namespace: "firecrawl",
+        tools: [
+          {
+            name: "scrape",
+            description: "Scrape a URL",
+            inputSchema: {
+              type: "object",
+              properties: {
+                formats: {
+                  type: "array",
+                  items: {
+                    type: "string",
+                    enum: ["markdown", "html", "rawHtml", "links", "screenshot", "audio"],
+                  },
+                },
+                categories: {
+                  type: "array",
+                  items: {
+                    type: "string",
+                    enum: ["github", "research", "pdf"],
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+    ]);
+
+    expect(typeDefs).toContain(
+      'formats?: ("markdown" | "html" | "rawHtml" | "links" | "screenshot" | "audio")[];',
+    );
+    expect(typeDefs).toContain('categories?: ("github" | "research" | "pdf")[];');
+    // Unparenthesized form must not appear (binds `[]` only to the last union member).
+    expect(typeDefs).not.toContain(
+      'formats?: "markdown" | "html" | "rawHtml" | "links" | "screenshot" | "audio"[];',
+    );
+    expect(typeDefs).not.toContain('categories?: "github" | "research" | "pdf"[];');
+
+    const errors = typeCheck(
+      `await codemode.firecrawl.scrape({
+        formats: ["markdown", "links"],
+        categories: ["github", "pdf"],
+      });`,
+      generateBuiltinTypeDefs() + "\n" + typeDefs,
+    ).errors;
+    expect(errors).toEqual([]);
+  });
 });

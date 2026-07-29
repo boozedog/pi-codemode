@@ -231,6 +231,20 @@ function generateTypesFromJsonSchema(
     .join("\n");
 }
 
+/** Wrap union/intersection item types so `T | U[]` is not emitted for arrays. */
+function asArrayItemType(itemType: string): string {
+  const trimmed = itemType.trim();
+  if (!trimmed) return "any";
+  // Already grouped, function types, or single tokens need no extra parens.
+  if (trimmed.startsWith("(") || trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    return trimmed;
+  }
+  if (trimmed.includes("|") || trimmed.includes("&")) {
+    return `(${trimmed})`;
+  }
+  return trimmed;
+}
+
 function schemaToType(schema: JSONSchema7Definition | undefined, required: string[] = []): string {
   if (!schema || typeof schema === "boolean") return "any";
 
@@ -251,7 +265,7 @@ function schemaToType(schema: JSONSchema7Definition | undefined, required: strin
     case "boolean":
       return "boolean";
     case "array":
-      return `${schemaToType(schema.items as JSONSchema7Definition | undefined)}[]`;
+      return `${asArrayItemType(schemaToType(schema.items as JSONSchema7Definition | undefined))}[]`;
     case "object": {
       const properties = schema.properties ?? {};
       const entries = Object.entries(properties);
