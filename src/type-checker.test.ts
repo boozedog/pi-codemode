@@ -1,7 +1,18 @@
-import { describe, expect, test } from "vitest";
-import { initTypeChecker, typeCheck } from "./type-checker.js";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, describe, expect, test } from "vitest";
+import {
+  initTypeChecker,
+  resetTypeCheckerForTests,
+  resolveTypeScriptLibDir,
+  typeCheck,
+} from "./type-checker.js";
 
 describe("typeCheck", () => {
+  afterEach(() => {
+    resetTypeCheckerForTests();
+  });
+
   test("accepts valid generated code against provided declarations", () => {
     const result = typeCheck(
       `const text = await codemode.read({ path: "README.md" });\nprint(text.toUpperCase());`,
@@ -50,5 +61,31 @@ await codemode.read({ path: 123 });`,
     initTypeChecker();
 
     expect(typeCheck("const value: Promise<number> = Promise.resolve(1);", "").errors).toEqual([]);
+  });
+
+  test("resolves typescript lib files via createRequire (works when package is hoisted)", () => {
+    const libDir = resolveTypeScriptLibDir();
+
+    expect(existsSync(join(libDir, "lib.es2022.d.ts"))).toBe(true);
+    expect(existsSync(join(libDir, "lib.es2015.promise.d.ts"))).toBe(true);
+    expect(existsSync(join(libDir, "lib.es5.d.ts"))).toBe(true);
+  });
+
+  test("initTypeChecker fails loudly when no lib files can be loaded", () => {
+    expect(() => initTypeChecker({ libDir: "/nonexistent/typescript/lib" })).toThrow(
+      /no TS lib files under \/nonexistent\/typescript\/lib/,
+    );
+  });
+
+  test("type-checks Promise and Record globals after init", () => {
+    initTypeChecker();
+    const result = typeCheck(
+      `const value: Promise<number> = Promise.resolve(1);
+const map: Record<string, number> = { a: 1 };
+const ro: Readonly<{ x: number }> = { x: 2 };
+return await value;`,
+      "",
+    );
+    expect(result.errors).toEqual([]);
   });
 });

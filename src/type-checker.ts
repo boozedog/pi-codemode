@@ -10,8 +10,11 @@
 
 import ts from "typescript";
 import fsReal from "node:fs";
+import { createRequire } from "node:module";
 import pathReal from "node:path";
 import { fileURLToPath } from "node:url";
+
+const requireFromHere = createRequire(import.meta.url);
 
 export interface TypeCheckError {
   /** Line number in user's code (1-indexed) */
@@ -88,44 +91,79 @@ const LIB_NAMES = [
   "lib.es2022.intl.d.ts",
 ];
 
+export interface InitTypeCheckerOptions {
+  /** Override the TypeScript lib directory (tests / unusual layouts). */
+  libDir?: string;
+}
+
+/**
+ * Resolve the on-disk TypeScript `lib` directory in an ESM-safe way.
+ * Prefers `createRequire(import.meta.url).resolve`, which works when
+ * typescript is hoisted next to the package (common npm/pnpm layout).
+ */
+export function resolveTypeScriptLibDir(): string {
+  try {
+    return pathReal.dirname(requireFromHere.resolve("typescript/lib/lib.es2022.d.ts"));
+  } catch {
+    // Fall through to nested / sibling package layouts.
+  }
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = pathReal.dirname(__filename);
+  const candidates = [
+    pathReal.resolve(__dirname, "../node_modules/typescript/lib"),
+    // dist/.. is package root; one more hop covers hoisted installs beside the package root
+    pathReal.resolve(__dirname, "../../typescript/lib"),
+    pathReal.resolve(__dirname, "../../../typescript/lib"),
+  ];
+
+  for (const dir of candidates) {
+    if (fsReal.existsSync(pathReal.join(dir, "lib.es2022.d.ts"))) {
+      return dir;
+    }
+  }
+
+  throw new Error(
+    "Codemode type checker could not resolve typescript/lib (tried createRequire and nested paths)",
+  );
+}
+
 /**
  * Initialize the type checker by pre-parsing TS lib files.
  * Call once at extension load. Subsequent calls are no-ops.
  */
-export function initTypeChecker(): void {
+export function initTypeChecker(options: InitTypeCheckerOptions = {}): void {
   if (sourceFiles) return;
 
   sourceFiles = new Map();
   fileContent = new Map();
   directories = new Set();
 
-  // Load ES2022 lib files from TypeScript's lib directory
-  // In ESM, we need to resolve typescript differently
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = pathReal.dirname(__filename);
-
-  // Resolve typescript lib path by finding the package
-  let tsLibDir: string;
-  try {
-    // Try to resolve from the typescript package
-    const tsPath = pathReal.resolve(__dirname, "../node_modules/typescript/lib/lib.es2022.d.ts");
-    if (fsReal.existsSync(tsPath)) {
-      tsLibDir = pathReal.dirname(tsPath);
-    } else {
-      // Fallback: try global resolution
-      tsLibDir = pathReal.dirname(require.resolve("typescript/lib/lib.es2022.d.ts"));
-    }
-  } catch {
-    // Last resort: assume standard node_modules structure
-    tsLibDir = pathReal.resolve(__dirname, "../node_modules/typescript/lib");
-  }
+  const tsLibDir = options.libDir ?? resolveTypeScriptLibDir();
+  let loaded = 0;
 
   for (const name of LIB_NAMES) {
     const filePath = pathReal.join(tsLibDir, name);
     if (fsReal.existsSync(filePath)) {
       addFile(name, fsReal.readFileSync(filePath, "utf-8"));
+      loaded += 1;
     }
   }
+
+  if (loaded === 0) {
+    // Leave state unset so a later successful init can retry.
+    sourceFiles = null;
+    fileContent = null;
+    directories = null;
+    throw new Error(`Codemode type checker found no TS lib files under ${tsLibDir}`);
+  }
+}
+
+/** Test helper: clear cached lib SourceFiles so init can run again. */
+export function resetTypeCheckerForTests(): void {
+  sourceFiles = null;
+  fileContent = null;
+  directories = null;
 }
 
 /** Add a file to the virtual file system. */
