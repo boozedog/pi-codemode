@@ -43,6 +43,8 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   let originalTools: string[] = [];
   let mcpClient: McpClient | undefined;
   let mcpServers: McpServerInfo[] = [];
+  /** Startup problems to surface via UI once session_start provides a context. */
+  const startupWarnings: string[] = [];
 
   // Initialize the TypeScript type checker (pre-loads lib files, ~50ms)
   initTypeChecker();
@@ -53,7 +55,9 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     config = loadConfig();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`Codemode: config load failed: ${message}`);
+    const warning = `Codemode: config load failed: ${message}`;
+    console.warn(warning);
+    startupWarnings.push(warning);
     config = { mode: "on", executor: { type: "quickjs", timeoutMs: 120_000 } };
   }
 
@@ -68,11 +72,15 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
-        console.warn(`Codemode: MCP cache warmup failed: ${message}`);
+        const warning = `Codemode: MCP cache warmup failed: ${message}`;
+        console.warn(warning);
+        startupWarnings.push(warning);
       });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(`Codemode: MCP init failed: ${message}`);
+    const warning = `Codemode: MCP init failed: ${message}`;
+    console.warn(warning);
+    startupWarnings.push(warning);
     mcpServers = [];
   }
 
@@ -128,6 +136,12 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       description: t.description,
     }));
     buildSearchIndex(piTools, mcpServers, config.cli);
+
+    // Flush any startup warnings once UI is available (config/MCP failures, etc.)
+    while (startupWarnings.length > 0) {
+      const warning = startupWarnings.shift();
+      if (warning) ctx.ui.notify(warning, "warning");
+    }
 
     const startMode: CodemodeMode = pi.getFlag("no-codemode") ? "off" : config.mode;
     applyMode(startMode, ctx);
@@ -407,7 +421,7 @@ ${builtinTypeDefs}
 ${mcpSummary ? "\n" + mcpSummary + "\n" : ""}
 ### How to use
 
-Call the top-level \`codemode\` tool with a TypeScript code body. Use top-level \`read\` for file inspection; file mutation helpers are intentionally unavailable inside guest code. Use top-level visible patch editing instead (see #21 for diff rendering). Use the in-guest \`codemode.*\` object for discovery and MCP tools. Prefer \`return\` for the final value. Use \`print()\` only for diagnostics or intermediate output you do not also return.
+Call the top-level \`codemode\` tool with a TypeScript code body. Use top-level \`read\` for file inspection; file mutation helpers are intentionally unavailable inside guest code. Use top-level visible patch editing instead (patch results render as diffs in chat). Use the in-guest \`codemode.*\` object for discovery and MCP tools. Prefer \`return\` for the final value. Use \`print()\` only for diagnostics or intermediate output you do not also return.
 
 Write human-readable, nicely formatted TypeScript with normal line breaks in codemode calls. Avoid cramming multiple statements into one long line; the code is shown in the transcript while it runs and should be easy for the user to review.
 
@@ -541,5 +555,5 @@ function generateEditGuidance(): string {
 ### Edit guidance
 - File mutation is patch-only and outside codemode guest code.
 - Use the top-level visible patch editing tool for unified diffs scoped to the project root.
-- Patch results should be rendered visibly in chat; see #21 for diff rendering.`;
+- Patch results should be rendered visibly in chat.`;
 }

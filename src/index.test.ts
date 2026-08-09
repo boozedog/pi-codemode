@@ -6,17 +6,24 @@ type TestConfig = {
   executor: { type: "quickjs"; timeoutMs: number };
 };
 
-const loadConfig = vi.fn<() => TestConfig>(() => ({
-  mode: "yolo",
-  executor: { type: "quickjs", timeoutMs: 1234 },
-}));
-const shutdown = vi.fn(async () => {});
-const warmCache = vi.fn(async () => []);
-const getServers = vi.fn(() => []);
+const { loadConfig, createMcpClient, shutdown, warmCache, getServers } = vi.hoisted(() => {
+  const shutdown = vi.fn(async () => {});
+  const warmCache = vi.fn(async () => []);
+  const getServers = vi.fn(() => []);
+  return {
+    loadConfig: vi.fn<() => TestConfig>(() => ({
+      mode: "yolo",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    })),
+    createMcpClient: vi.fn(() => ({ getServers, warmCache, shutdown })),
+    shutdown,
+    warmCache,
+    getServers,
+  };
+});
+
 vi.mock("./config.js", () => ({ loadConfig }));
-vi.mock("./mcp-client.js", () => ({
-  createMcpClient: vi.fn(() => ({ getServers, warmCache, shutdown })),
-}));
+vi.mock("./mcp-client.js", () => ({ createMcpClient }));
 vi.mock("./execute-tool.js", () => ({
   createExecuteTool: vi.fn(() => ({
     name: "codemode",
@@ -59,11 +66,15 @@ function createPiMock() {
 describe("codemodeExtension", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    loadConfig.mockReset();
     loadConfig.mockReturnValue({
       mode: "yolo",
       executor: { type: "quickjs", timeoutMs: 1234 },
     });
+    createMcpClient.mockReset();
+    createMcpClient.mockImplementation(() => ({ getServers, warmCache, shutdown }));
     getServers.mockReturnValue([]);
+    warmCache.mockResolvedValue([]);
   });
 
   test("registers flag, codemode tool, lifecycle handlers, and toggle command", async () => {
@@ -104,6 +115,44 @@ describe("codemodeExtension", () => {
     expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode yolo mode enabled", "info");
     expect(prompt.systemPrompt).toContain("## Code Mode (yolo)");
     expect(prompt.systemPrompt).toContain("native bash is available");
+  });
+
+  test("does not leak internal issue numbers into system prompts", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+
+    await handlers.get("session_start")?.({}, ctx);
+    const prompt = (await handlers.get("before_agent_start")?.({ systemPrompt: "base" })) as {
+      systemPrompt: string;
+    };
+
+    expect(prompt.systemPrompt).not.toMatch(/#\d+/);
+    expect(prompt.systemPrompt).toContain("top-level visible patch editing");
+  });
+
+  test("surfaces startup config and MCP failures via UI notify on session_start", async () => {
+    loadConfig.mockImplementation(() => {
+      throw new Error("bad config for test");
+    });
+    createMcpClient.mockImplementation(() => {
+      throw new Error("mcp boom");
+    });
+
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+
+    await handlers.get("session_start")?.({}, ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("config load failed"),
+      "warning",
+    );
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("MCP init failed"),
+      "warning",
+    );
   });
 
   test("on mode activates codemode plus non-bash tools and prompts accordingly", async () => {

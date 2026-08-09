@@ -28,7 +28,20 @@ describe("package metadata", () => {
     expect(pkg.main).toBe("./dist/index.js");
     expect(pkg.exports).toEqual({ ".": "./dist/index.js" });
     expect(pkg.pi?.extensions).toEqual(["./dist/index.js"]);
-    expect(pkg.files).toEqual(expect.arrayContaining(["dist/", "README.md", "LICENSE"]));
+    expect(pkg.files).toEqual(["dist/", "README.md", "LICENSE"]);
+    expect(pkg.files).not.toContain("src/");
+  });
+
+  test("attributes the package to boozedog and credits upstream Codemode/Pi work", () => {
+    const pkg = packageJson() as PackageJson & {
+      author?: string | { name?: string };
+      contributors?: Array<string | { name?: string }>;
+    };
+    const author = typeof pkg.author === "string" ? pkg.author : (pkg.author?.name ?? "");
+    expect(author.toLowerCase()).toContain("boozedog");
+    const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
+    expect(readme).toMatch(/boozedog/i);
+    expect(readme).toMatch(/Mario Zechner|Cloudflare Codemode|pi-coding-agent/i);
   });
 
   test("builds before npm pack and git installs", () => {

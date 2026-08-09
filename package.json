@@ -14,14 +14,17 @@
     "url": "https://github.com/boozedog/pi-codemode/issues"
   },
   "license": "MIT",
-  "author": "Mario Zechner and contributors",
+  "author": "boozedog",
+  "contributors": [
+    "Mario Zechner (original Pi / codemode patterns)",
+    "boozedog and contributors"
+  ],
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/boozedog/pi-codemode.git"
   },
   "files": [
     "dist/",
-    "src/",
     "README.md",
     "LICENSE"
   ],

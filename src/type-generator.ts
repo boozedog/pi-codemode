@@ -322,7 +322,7 @@ export function generateBuiltinTypeDefs(config?: { cli?: CliConfig }): string {
 
 /** Read a file. Use offset/limit for large files instead of reading more than needed. */
 declare function read(args: { path: string; offset?: number; limit?: number }): Promise<string>;
-/** File mutation is intentionally not available inside codemode guest code. Use the top-level visible patch editing tool instead; see #21 for diff rendering. */
+/** File mutation is intentionally not available inside codemode guest code. Use the top-level visible patch editing tool instead; patch results render as diffs in chat. */
 
 declare const codemode: CodemodeTools & McpServerNamespaces;
 

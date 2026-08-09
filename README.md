@@ -287,6 +287,12 @@ In `yolo` mode, Pi's native `bash` tool is available outside `execute_tools` as 
 
 Allowed capabilities are only the injected globals listed above. File tools validate paths against the project root and reject traversal outside it. Enabling host-backed `cli` operations expands trust boundaries and should be reviewed in config.
 
+## Attribution
+
+Maintained and published by **boozedog** as `@boozedog/pi-codemode`.
+
+This project builds on Pi coding-agent extension patterns and Codemode-style typed tool execution ideas associated with Mario Zechner's Pi ecosystem and Cloudflare Codemode. See repository history and upstream projects for lineage.
+
 ## Installation
 
 ### Recommended install: npm package
@@ -372,7 +378,7 @@ The helper checks for a clean tree, updates `package.json`/`package-lock.json` w
 After the tag is pushed:
 
 1. From a clean directory or machine, install the tag with `pi install git:github.com/boozedog/pi-codemode@<tag>`.
-2. Start Pi and confirm Codemode loads, `execute_tools` can read files, typed CLI/shell capabilities work, and the result UI renders.
+2. Start Pi and confirm Codemode loads, the `codemode` tool can read files, typed host `cli.*` capabilities work, and the result UI renders.
 3. Publish the same version to npm for the Pi package catalog.
 
 ### Publish to npm for pi.dev catalog discovery

@@ -73,7 +73,7 @@ Write code using top-level file tools and the in-guest codemode.* API. Your code
 
 Available tools in code:
 - read({ path }) → file content as string
-- File mutation helpers (write, replace_in_file, apply_patch) are intentionally unavailable inside guest code; use the top-level visible patch editing tool instead (see #21 for diff rendering).
+- File mutation helpers (write, replace_in_file, apply_patch) are intentionally unavailable inside guest code; use the top-level visible patch editing tool instead (patch results render as diffs in chat).
 - codemode.search_tools({ query }) → discover available tools
 - codemode.describe_tools({ namespace, tool? }) → browse MCP tools
 - codemode.<namespace>.<tool>(args) → call MCP tools (e.g., codemode.github.search_issues())
