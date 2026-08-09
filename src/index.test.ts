@@ -13,15 +13,9 @@ const loadConfig = vi.fn<() => TestConfig>(() => ({
 const shutdown = vi.fn(async () => {});
 const warmCache = vi.fn(async () => []);
 const getServers = vi.fn(() => []);
-const initShell = vi.fn(async () => {});
-
 vi.mock("./config.js", () => ({ loadConfig }));
 vi.mock("./mcp-client.js", () => ({
   createMcpClient: vi.fn(() => ({ getServers, warmCache, shutdown })),
-}));
-vi.mock("./shell.js", () => ({
-  generateShellTypeDefs: vi.fn(() => ""),
-  initShell,
 }));
 vi.mock("./execute-tool.js", () => ({
   createExecuteTool: vi.fn(() => ({
@@ -86,15 +80,6 @@ describe("codemodeExtension", () => {
       "before_agent_start",
     ]);
     expect(commands.has("codemode")).toBe(true);
-  });
-
-  test("initializes just-bash for the current project", async () => {
-    const { default: codemodeExtension } = await import("./index.js");
-    const { pi } = createPiMock();
-
-    codemodeExtension(pi as never);
-
-    expect(initShell).toHaveBeenCalledWith(expect.objectContaining({ projectRoot: process.cwd() }));
   });
 
   test("session_start defaults to yolo mode with codemode and native bash", async () => {

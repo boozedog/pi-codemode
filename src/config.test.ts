@@ -126,6 +126,19 @@ describe("loadConfig", () => {
     });
   });
 
+  test("rejects just-bash CLI backend", async () => {
+    const projectDir = await tempDir();
+    await mkdir(join(projectDir, ".pi"), { recursive: true });
+    await writeFile(
+      join(projectDir, ".pi", "codemode.json"),
+      JSON.stringify({ cli: { find: { backend: "just-bash", operations: ["files"] } } }),
+    );
+
+    expect(() => loadConfig({ homeDir: "/missing-home", projectDir })).toThrow(
+      "Unsupported CLI backend 'just-bash'",
+    );
+  });
+
   test("rejects unsupported executor types", async () => {
     const projectDir = await tempDir();
     await mkdir(join(projectDir, ".pi"), { recursive: true });

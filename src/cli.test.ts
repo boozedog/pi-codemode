@@ -9,7 +9,7 @@ vi.mock("@mariozechner/pi-tui", () => ({
     constructor(public text: string) {}
   },
 }));
-import { buildCliArgv, createCliBindings, listJustBashCommands } from "./cli.js";
+import { buildCliArgv, createCliBindings } from "./cli.js";
 import { CLI_OPERATIONS } from "./cli-operations.js";
 import { QuickJsExecutor } from "./executor/quickjs-executor.js";
 import { generateBuiltinTypeDefs } from "./type-generator.js";
@@ -154,39 +154,33 @@ describe("cli command capabilities", () => {
     expect(result.error).toContain("cli.git.status");
   });
 
-  test("allows read-only operations to use the just-bash backend", () => {
+  test("rejects the removed just-bash backend", () => {
     const cwd = tempProject();
 
     expect(() =>
-      createCliBindings({ find: { backend: "just-bash", operations: ["files"] } }, cwd),
-    ).not.toThrow();
+      createCliBindings({ find: { backend: "just-bash" as "host", operations: ["files"] } }, cwd),
+    ).toThrow("Unsupported CLI backend 'just-bash'");
   });
 
-  test("discovers just-bash commands without auto-exposing operations", () => {
-    const commands = listJustBashCommands();
+  test("does not expose unconfigured find/grep/ls tools in generated types", () => {
     const types = generateBuiltinTypeDefs({});
-
-    expect(commands).toContain("find");
-    expect(commands).toContain("grep");
     expect(types).not.toContain("find:");
+    expect(types).not.toContain("grep:");
+    expect(types).not.toContain("ls:");
   });
 
-  test("rejects unavailable just-bash commands", () => {
+  test("allows host-backed find/grep/ls configuration", () => {
     const cwd = tempProject();
-
     expect(() =>
-      createCliBindings({ git: { backend: "just-bash", operations: ["status"] } }, cwd),
-    ).toThrow("just-bash command is not available: git");
-  });
-
-  test("rejects non-read operations configured with the just-bash backend", () => {
-    const cwd = tempProject();
-
-    expect(() =>
-      createCliBindings({ gh: { backend: "just-bash", operations: ["issueView"] } }, cwd),
-    ).toThrow(
-      "Operation cli.gh.issueView cannot use just-bash backend because it is not read-only",
-    );
+      createCliBindings(
+        {
+          find: { backend: "host", operations: ["files"] },
+          grep: { backend: "host", operations: ["search"] },
+          ls: { backend: "host", operations: ["list"] },
+        },
+        cwd,
+      ),
+    ).not.toThrow();
   });
 
   test("unknown write-like operations are not exposed", async () => {

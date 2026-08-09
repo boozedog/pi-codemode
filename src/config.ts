@@ -22,7 +22,7 @@ export interface CodemodeConfig {
 export type CliConfig = Record<string, CliToolConfig>;
 
 export interface CliToolConfig {
-  backend: "host" | "just-bash";
+  backend: "host";
   command?: string;
   operations: string[] | Record<string, CliOperationConfig>;
 }
@@ -125,6 +125,8 @@ function normalizeConfig(config: ConfigInput): CodemodeConfig {
     );
   }
 
+  const cli = normalizeCliConfig(config.cli);
+
   return {
     ...config,
     mode,
@@ -132,7 +134,26 @@ function normalizeConfig(config: ConfigInput): CodemodeConfig {
       type,
       timeoutMs: executor.timeoutMs ?? DEFAULT_CONFIG.executor.timeoutMs,
     },
+    cli,
   };
+}
+
+function normalizeCliConfig(cli: CodemodeConfig["cli"]): CodemodeConfig["cli"] {
+  if (!cli) return undefined;
+  const normalized: CliConfig = {};
+  for (const [toolName, toolConfig] of Object.entries(cli)) {
+    if (!toolConfig || typeof toolConfig !== "object") {
+      throw new Error(`Invalid CLI tool config for '${toolName}'`);
+    }
+    const backend = (toolConfig as CliToolConfig).backend;
+    if (backend !== "host") {
+      throw new Error(
+        `Unsupported CLI backend '${String(backend)}' for cli.${toolName}. Only 'host' is supported`,
+      );
+    }
+    normalized[toolName] = toolConfig as CliToolConfig;
+  }
+  return normalized;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

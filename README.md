@@ -95,7 +95,7 @@ const status = await cli.git.status({ short: true, branch: true });
 const hits = await cli.rg.search({ pattern: "TODO", paths: ["src"], lineNumber: true });
 ```
 
-Each `cli` tool/operation must be allowlisted in config. Backends may be native host commands or `just-bash` commands. `just-bash` backend operations are explicitly limited to read-only operation metadata and must exist in the installed `just-bash` command set; discovery is used for validation only and never auto-exposes commands. `just-bash` still uses scoped mounts internally, typically `/workspace` mapped to the project root read/write and `/tmp` as in-memory temp space. Network and JS/Python runtimes remain disabled by default.
+Each `cli` tool/operation must be allowlisted in config and runs as a native host command (`backend: "host"`). There is no in-guest shell backend. Discovery never auto-exposes host binaries; only configured operations are available.
 
 Host command output is capped inline at 50 KiB per stream, with a truncation marker when exceeded. Non-zero command exits do not throw; inspect `exitCode`. Denied operations, missing executables, timeouts, and invalid runtime argument shapes throw clear CLI errors.
 
@@ -254,9 +254,9 @@ Codemode-specific MCP servers and typed CLI capabilities can also be configured 
       ]
     },
     "rg": { "backend": "host", "operations": ["search"] },
-    "find": { "backend": "just-bash", "operations": ["files"] },
-    "grep": { "backend": "just-bash", "operations": ["search"] },
-    "ls": { "backend": "just-bash", "operations": ["list"] },
+    "find": { "backend": "host", "operations": ["files"] },
+    "grep": { "backend": "host", "operations": ["search"] },
+    "ls": { "backend": "host", "operations": ["list"] },
     "vitest": { "backend": "host", "operations": ["run"] },
     "tsc": { "backend": "host", "operations": ["build"] },
     "oxfmt": { "backend": "host", "operations": ["check", "write"] },
@@ -284,7 +284,6 @@ Denied by default:
 In `yolo` mode, Pi's native `bash` tool is available outside `execute_tools` as an explicit escape hatch and has broader host access. Use `on` mode when you want Codemode without the native bash escape hatch.
 
 - raw subprocess/argv passthrough from generated code
-- just-bash network and JS/Python runtimes
 
 Allowed capabilities are only the injected globals listed above. File tools validate paths against the project root and reject traversal outside it. Enabling host-backed `cli` operations expands trust boundaries and should be reviewed in config.
 

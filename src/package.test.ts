@@ -62,7 +62,6 @@ describe("package metadata", () => {
 
     expect(pkg.dependencies).toEqual(
       expect.objectContaining({
-        "just-bash": expect.any(String),
         minisearch: expect.any(String),
         "pi-mcp-adapter": expect.any(String),
         "@jitl/quickjs-singlefile-mjs-release-sync": expect.any(String),

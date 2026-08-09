@@ -64,15 +64,15 @@
       "operations": ["search"]
     },
     "find": {
-      "backend": "just-bash",
+      "backend": "host",
       "operations": ["files"]
     },
     "grep": {
-      "backend": "just-bash",
+      "backend": "host",
       "operations": ["search"]
     },
     "ls": {
-      "backend": "just-bash",
+      "backend": "host",
       "operations": ["list"]
     },
     "vitest": {

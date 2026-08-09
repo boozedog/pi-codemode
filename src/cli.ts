@@ -1,12 +1,15 @@
 // cli.ts — Typed command capabilities for codemode.
 
 import { spawn } from "node:child_process";
-import { getCommandNames } from "just-bash";
-import { executeJustBash, type ShellResult } from "./shell.js";
 import type { CliConfig, CliOperationConfig, CliToolConfig } from "./config.js";
-import { CLI_OPERATIONS, getCliOperationDefinition } from "./cli-operations.js";
+import { getCliOperationDefinition } from "./cli-operations.js";
 
-export interface CommandResult extends ShellResult {
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  stdoutFile?: string;
+  stderrFile?: string;
   json?: unknown;
 }
 
@@ -36,19 +39,10 @@ export function createCliBindings(
 
 function validateCliConfig(config: CliConfig | undefined): void {
   for (const [toolName, toolConfig] of Object.entries(config ?? {})) {
-    const defs = CLI_OPERATIONS[toolName];
-    if (!defs) continue;
-    for (const operation of configuredOperations(toolConfig)) {
-      const definition = defs[operation];
-      if (!definition) continue;
-      if (toolConfig.backend === "just-bash" && definition.effect !== "read") {
-        throw new Error(
-          `Operation cli.${toolName}.${operation} cannot use just-bash backend because it is not read-only`,
-        );
-      }
-      if (toolConfig.backend === "just-bash" && !listJustBashCommands().includes(toolName)) {
-        throw new Error(`just-bash command is not available: ${toolName}`);
-      }
+    if (toolConfig.backend !== "host") {
+      throw new Error(
+        `Unsupported CLI backend '${String(toolConfig.backend)}' for cli.${toolName}. Only 'host' is supported`,
+      );
     }
   }
 }
@@ -68,9 +62,6 @@ async function executeCliOperation(
   const safeArgs = asArgs(args);
   const opConfig = operationConfig(toolConfig, operation);
   if (toolName === "gh" && isIssueBlockedByMutation(operation)) {
-    if (toolConfig.backend !== "host") {
-      throw new Error(`Operation cli.${toolName}.${operation} requires host backend`);
-    }
     return executeGhIssueBlockedByMutation(
       toolConfig.command ?? toolName,
       projectRoot,
@@ -81,20 +72,15 @@ async function executeCliOperation(
     );
   }
   const argv = buildCliArgv(toolName, operation, safeArgs);
-  if (toolConfig.backend === "host") {
-    return executeHost(
-      toolConfig.command ?? toolName,
-      argv,
-      projectRoot,
-      toolName,
-      operation,
-      opConfig.timeoutMs,
-      signal,
-    );
-  }
-  return executeJustBash(projectRoot, quoteCommand([toolName, ...argv]), {
-    timeoutMs: opConfig.timeoutMs,
-  });
+  return executeHost(
+    toolConfig.command ?? toolName,
+    argv,
+    projectRoot,
+    toolName,
+    operation,
+    opConfig.timeoutMs,
+    signal,
+  );
 }
 
 function isIssueBlockedByMutation(operation: string): boolean {
@@ -177,10 +163,6 @@ export function buildCliArgv(
   return definition.toArgv(args);
 }
 
-export function listJustBashCommands(): string[] {
-  return getCommandNames();
-}
-
 export function configuredOperations(toolConfig: CliToolConfig): string[] {
   return Array.isArray(toolConfig.operations)
     ? toolConfig.operations
@@ -247,10 +229,6 @@ function hostCommandEnv(): NodeJS.ProcessEnv {
     GITHUB_TOKEN: process.env.GITHUB_TOKEN,
     GITHUB_HOST: process.env.GITHUB_HOST,
   };
-}
-
-function quoteCommand(parts: string[]): string {
-  return parts.map((part) => `'${part.replace(/'/g, `'\\''`)}'`).join(" ");
 }
 
 const HOST_MAX_OUTPUT_BYTES = 50 * 1024;

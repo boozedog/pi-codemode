@@ -20,7 +20,6 @@ import { createExecuteTool } from "./execute-tool.js";
 import { createMcpClient, type McpClient } from "./mcp-client.js";
 import { createToolBindings } from "./tool-bindings.js";
 import { loadConfig, type CodemodeConfig, type CodemodeMode } from "./config.js";
-import { initShell } from "./shell.js";
 import { createFileTools } from "./file-tools.js";
 
 export default function codemodeExtension(pi: ExtensionAPI) {
@@ -57,12 +56,6 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     console.warn(`Codemode: config load failed: ${message}`);
     config = { mode: "on", executor: { type: "quickjs", timeoutMs: 120_000 } };
   }
-
-  // --- Initialize shell integration ---
-  void initShell({ projectRoot: process.cwd() }).catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`Codemode: shell init failed: ${message}`);
-  });
 
   // --- Load MCP server info ---
   try {

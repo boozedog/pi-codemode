@@ -68,7 +68,7 @@ Before expanding executor features, keep these behaviors covered by tests:
 ## Security model reminders
 
 - Generated code must not get direct host filesystem, environment, network, subprocess, or Node APIs.
-- Shell workflows go through `just-bash` via `$` / `shell()`, not unrestricted host bash.
+- There is no in-guest shell. Use allowlisted host `cli.*` operations; unrestricted host bash is only via Pi native tools in yolo mode.
 - MCP tools are exposed inside codemode only unless separately configured elsewhere.
 - Prefer explicit allow/deny policies and test them.
 

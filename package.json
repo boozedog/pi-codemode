@@ -1,7 +1,7 @@
 {
   "name": "@boozedog/pi-codemode",
   "version": "0.1.8",
-  "description": "Pi Codemode plugin - TypeScript code execution with sandboxed tools, just-bash shell, and MCP integration",
+  "description": "Pi Codemode plugin - TypeScript code execution with sandboxed tools, typed host CLI, and MCP integration",
   "keywords": [
     "codemode",
     "pi-extension",
@@ -47,7 +47,6 @@
   },
   "dependencies": {
     "@jitl/quickjs-singlefile-mjs-release-sync": "^0.32.0",
-    "just-bash": "3.0.0",
     "minisearch": "^7.2.0",
     "pi-mcp-adapter": "2.5.4",
     "quickjs-emscripten-core": "^0.32.0",

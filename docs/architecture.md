@@ -5,7 +5,7 @@
 Pi Codemode exposes one primary Pi tool, `execute_tools`, where the model writes TypeScript code to orchestrate multiple capabilities in one call:
 
 - Pi-backed tools such as read/write/edit
-- shell-like workflows through `just-bash`
+- allowlisted host CLI capabilities via `cli.*`
 - codemode-only MCP tools
 - discovery helpers such as `search_tools` and `describe_tools`
 
@@ -36,7 +36,7 @@ Pi plugin
   -> Pi-native execute_tools wrapper
   -> QuickJS sandbox executor
   -> async host-function bridge
-  -> Pi safe tools + just-bash commands + codemode-only MCP
+  -> Pi safe tools + host cli.* + codemode-only MCP
 ```
 
 Deno remains an optional/future executor behind the same interface. Node VM is intentionally skipped for now.
@@ -156,39 +156,9 @@ Useful modules/designs to adapt:
 Things intentionally changed:
 
 - `tools.*` API -> `codemode.*`
-- `zx` host shell -> `just-bash`
+- free-form shell backends -> allowlisted host `cli.*` only
 - Node `vm` executor -> QuickJS target, Deno optional
 - old JSON Schema -> TypeScript generator -> Cloudflare helper where suitable
-
-## just-bash integration
-
-Shell workflows are exposed through:
-
-```ts
-await $`rg TODO src`;
-await shell({ command: "find src -name '*.ts'" });
-```
-
-This is not host bash. It is `just-bash` over scoped filesystem mounts.
-
-Default filesystem strategy:
-
-```txt
-/workspace  -> project root, read/write
-/tmp        -> in-memory temp space
-/home/user  -> optional in-memory home
-/refs       -> optional read-only reference material
-```
-
-Important defaults:
-
-- project mounted read/write at `/workspace`
-- generated code has no direct filesystem access
-- shell sees only configured mounts
-- network disabled by default
-- `just-bash` JS/Python disabled by default
-
-`just-bash` also ships `js-exec` backed by QuickJS/WASM. That is useful reference material, but the codemode executor should own QuickJS directly so it can inject the exact API surface and async host bridge needed by `execute_tools`.
 
 ## MCP integration
 
@@ -233,7 +203,7 @@ Defense in depth:
 
 ```txt
 QuickJS executor: no direct host fs/env/net/run/process access
-just-bash: shell commands scoped to configured mounts and command policy
+host cli.*: allowlisted argv operations spawned on the host with project cwd
 host dispatcher: only approved codemode functions are callable
 ```
 
@@ -244,8 +214,6 @@ Denied by default:
 - direct filesystem access from generated code
 - direct env access from generated code
 - subprocess spawning from generated code
-- `just-bash` network
-- `just-bash` JS/Python runtimes
 
 ## Current GitHub tracking
 
@@ -254,7 +222,6 @@ The active source of truth for remaining work is GitHub issue tracking:
 - Epic: <https://github.com/boozedog/pi-codemode/issues/1>
 - QuickJS executor: <https://github.com/boozedog/pi-codemode/issues/2>
 - Executor cleanup: <https://github.com/boozedog/pi-codemode/issues/3>
-- just-bash polish: <https://github.com/boozedog/pi-codemode/issues/4>
 - MCP polish: <https://github.com/boozedog/pi-codemode/issues/5>
 - Tests/evaluation: <https://github.com/boozedog/pi-codemode/issues/6>
 - Docs: <https://github.com/boozedog/pi-codemode/issues/7>
