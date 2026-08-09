@@ -25,11 +25,29 @@ export interface ExecutionResult {
 
 type ResultFormat = "json" | "structured" | "text" | "plain" | "raw" | "auto";
 
+export interface ExecuteBindingsContext {
+  signal?: AbortSignal;
+  onUpdate?: (update: {
+    content: Array<{ type: string; text: string }>;
+    details?: unknown;
+  }) => void;
+  /** Workspace / project root for this call */
+  cwd?: string;
+}
+
 export interface ExecuteToolOptions {
   /** TypeScript type definitions for the tool API */
   typeDefs: string;
-  /** Tool bindings for execution */
-  bindings: ToolBindings;
+  /**
+   * Static tool bindings. Prefer `getBindings` so each call receives
+   * the host AbortSignal and onUpdate callback.
+   */
+  bindings?: ToolBindings;
+  /**
+   * Factory invoked on every execute() with the call-scoped signal/onUpdate/cwd.
+   * When provided, takes precedence over static `bindings`.
+   */
+  getBindings?: (ctx: ExecuteBindingsContext) => ToolBindings;
   /** Max execution time in ms (default: 120_000 = 2 minutes) */
   timeout?: number;
   /** Max output size in bytes (default: 50KB) */
@@ -42,7 +60,10 @@ export interface ExecuteToolOptions {
  * Create the codemode tool definition.
  */
 export function createExecuteTool(options: ExecuteToolOptions): ToolDefinition {
-  const { typeDefs, bindings, timeout, maxOutputSize, executor } = options;
+  const { typeDefs, bindings, getBindings, timeout, maxOutputSize, executor } = options;
+  if (!bindings && !getBindings) {
+    throw new Error("createExecuteTool requires bindings or getBindings");
+  }
 
   return {
     name: "codemode",
@@ -93,7 +114,15 @@ Return the final value you want in the result. Prefer return over print for fina
     ) {
       // For now, do a type check only (Phase 2)
       // Phase 3 will add actual execution
-      const result = await executeCode(params.code, typeDefs, bindings, {
+      const callCwd =
+        typeof _ctx === "object" &&
+        _ctx &&
+        "cwd" in _ctx &&
+        typeof (_ctx as { cwd?: unknown }).cwd === "string"
+          ? (_ctx as { cwd: string }).cwd
+          : process.cwd();
+      const callBindings = getBindings?.({ signal, onUpdate, cwd: callCwd }) ?? bindings!;
+      const result = await executeCode(params.code, typeDefs, callBindings, {
         timeout,
         maxOutputSize,
         signal,

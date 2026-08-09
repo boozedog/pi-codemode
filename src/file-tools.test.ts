@@ -1,9 +1,9 @@
 // file-tools.test.ts — Tests for file tool implementations.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, symlinkSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { createFileTools } from "./file-tools.js";
 
 // Helper to create a temp project directory
@@ -343,6 +343,62 @@ describe("file tools", () => {
       });
       const content = readFileSync(join(projectDir, "test.txt"), "utf-8");
       expect(content).toBe("hello");
+    });
+  });
+
+  describe("path sandbox", () => {
+    it("rejects symlink inside project that points outside on read", () => {
+      const outsideDir = mkdtempSync(join(tmpdir(), "codemode-outside-"));
+      try {
+        writeFileSync(join(outsideDir, "secret.txt"), "top-secret");
+        symlinkSync(join(outsideDir, "secret.txt"), join(projectDir, "link.txt"));
+        expect(() => tools.read({ path: "link.txt" })).toThrow("Path outside project");
+      } finally {
+        rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects symlink inside project that points outside on write", () => {
+      const outsideDir = mkdtempSync(join(tmpdir(), "codemode-outside-"));
+      try {
+        writeFileSync(join(outsideDir, "secret.txt"), "before");
+        symlinkSync(join(outsideDir, "secret.txt"), join(projectDir, "link.txt"));
+        expect(() => tools.write({ path: "link.txt", content: "pwned" })).toThrow(
+          "Path outside project",
+        );
+        expect(readFileSync(join(outsideDir, "secret.txt"), "utf-8")).toBe("before");
+      } finally {
+        rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it("rejects directory symlink that escapes the project root", () => {
+      const outsideDir = mkdtempSync(join(tmpdir(), "codemode-outside-"));
+      try {
+        writeFileSync(join(outsideDir, "secret.txt"), "nope");
+        symlinkSync(outsideDir, join(projectDir, "escape"));
+        expect(() => tools.read({ path: "escape/secret.txt" })).toThrow("Path outside project");
+      } finally {
+        rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it("allows reading through a symlink that stays inside the project", () => {
+      writeFileSync(join(projectDir, "real.txt"), "inside");
+      symlinkSync(join(projectDir, "real.txt"), join(projectDir, "alias.txt"));
+      expect(tools.read({ path: "alias.txt" })).toBe("inside");
+    });
+
+    it("accepts nested relative paths using platform separators", () => {
+      mkdirSync(join(projectDir, "nested"), { recursive: true });
+      writeFileSync(join(projectDir, "nested", "a.txt"), "ok");
+      expect(tools.read({ path: join("nested", "a.txt") })).toBe("ok");
+    });
+
+    it("rejects absolute paths on another root via relative() containment", () => {
+      // relative(root, other) is absolute or starts with .. when outside — never startsWith(root+"/")
+      const outside = resolve(projectDir, "..", "not-in-project.txt");
+      expect(() => tools.read({ path: outside })).toThrow("Path outside project");
     });
   });
 });

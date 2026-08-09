@@ -109,7 +109,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
   const executeTool = createExecuteTool({
     typeDefs: typeCheckerTypeDefs,
-    bindings: getBindings(process.cwd()), // Initial bindings (will be recreated per call)
+    getBindings: ({ signal, onUpdate, cwd }) => getBindings(cwd ?? process.cwd(), signal, onUpdate),
     timeout: config.executor?.timeoutMs ?? 120_000,
     executor: { kind: config.executor?.type ?? "quickjs" },
   });

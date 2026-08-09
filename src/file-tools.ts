@@ -3,8 +3,8 @@
 // These are host-side implementations that use Node.js fs directly.
 // Path validation ensures all operations stay within the project directory.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { dirname, resolve, relative, isAbsolute, normalize, join } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
+import { dirname, resolve, relative, isAbsolute, normalize, join, sep } from "node:path";
 
 export interface FileToolsOptions {
   /** Project root directory - all file operations are scoped to this directory */
@@ -134,37 +134,102 @@ export function createFileTools(options: FileToolsOptions) {
 
 /**
  * Validate and resolve a user-provided path to an absolute path within the project.
- * Throws if the path attempts to escape the project directory.
+ * Throws if the path attempts to escape the project directory (including via symlinks).
+ *
+ * Policy: reject any path whose lexical or real (symlink-resolved) location is outside
+ * the project root. For not-yet-existing targets, the nearest existing ancestor is
+ * realpath'd and the remaining segments are re-checked lexically under that real base.
  */
 function validateAndResolvePath(userPath: string, projectRoot: string): string {
-  // Normalize the project root
-  const normalizedRoot = normalize(resolve(projectRoot));
+  const resolvedRoot = resolveRealOrNormalize(projectRoot);
+  const candidate = isAbsolute(userPath)
+    ? normalize(userPath)
+    : normalize(join(resolvedRoot, userPath));
 
-  // Resolve the user path
-  let fullPath: string;
-  if (isAbsolute(userPath)) {
-    fullPath = normalize(userPath);
-  } else {
-    fullPath = normalize(join(normalizedRoot, userPath));
+  // Lexical containment before touching the filesystem (blocks .. traversal).
+  assertPathInsideRoot(candidate, resolvedRoot, userPath);
+
+  // Symlink-aware containment: realpath existing prefix, then check final real path.
+  const realPath = resolvePathThroughSymlinks(candidate, resolvedRoot, userPath);
+  assertPathInsideRoot(realPath, resolvedRoot, userPath);
+
+  return realPath;
+}
+
+function resolveRealOrNormalize(path: string): string {
+  const absolute = resolve(path);
+  try {
+    return realpathSync(absolute);
+  } catch {
+    return normalize(absolute);
+  }
+}
+
+/**
+ * Walk from the candidate up to an existing ancestor, realpath that ancestor,
+ * then rejoin the missing tail. Rejects if any intermediate symlink escapes.
+ */
+function resolvePathThroughSymlinks(
+  candidate: string,
+  resolvedRoot: string,
+  userPath: string,
+): string {
+  // If the full path exists (file, dir, or symlink), realpath the whole thing.
+  if (existsSync(candidate)) {
+    try {
+      return realpathSync(candidate);
+    } catch {
+      // Broken symlink or unreadable — treat as outside / invalid.
+      throw new Error(`Path outside project: ${userPath}`);
+    }
   }
 
-  // Ensure the resolved path is within the project root
-  const relativePath = relative(normalizedRoot, fullPath);
+  // Walk parents until one exists (or we hit filesystem root).
+  let probe = candidate;
+  const missing: string[] = [];
+  while (!existsSync(probe)) {
+    const parent = dirname(probe);
+    if (parent === probe) break;
+    missing.unshift(probe.slice(parent.length).replace(/^[\\/]/, ""));
+    probe = parent;
+  }
 
-  // Check for path traversal attempts
-  if (relativePath.startsWith("..") || relativePath.startsWith("." + "/..")) {
+  if (!existsSync(probe)) {
+    // Nothing on disk — fall back to lexical candidate (already checked).
+    return candidate;
+  }
+
+  // If the deepest existing node is a symlink, realpath it (may escape).
+  let realBase: string;
+  try {
+    realBase = realpathSync(probe);
+  } catch {
     throw new Error(`Path outside project: ${userPath}`);
   }
+  assertPathInsideRoot(realBase, resolvedRoot, userPath);
 
-  // Double-check by resolving and comparing
-  const resolvedPath = resolve(fullPath);
-  const resolvedRoot = resolve(normalizedRoot);
+  const rebuilt = missing.length > 0 ? join(realBase, ...missing) : realBase;
+  assertPathInsideRoot(rebuilt, resolvedRoot, userPath);
+  return rebuilt;
+}
 
-  if (!resolvedPath.startsWith(resolvedRoot + "/") && resolvedPath !== resolvedRoot) {
+/** Platform-correct containment: relative path must not escape and must not be absolute. */
+function assertPathInsideRoot(target: string, root: string, userPath: string): void {
+  const resolvedTarget = normalize(resolve(target));
+  const resolvedRoot = normalize(resolve(root));
+  if (resolvedTarget === resolvedRoot) return;
+
+  const rel = relative(resolvedRoot, resolvedTarget);
+  // Outside: relative is empty with different roots, absolute, or climbs with ..
+  if (
+    rel === "" ||
+    isAbsolute(rel) ||
+    rel === ".." ||
+    rel.startsWith(`..${sep}`) ||
+    rel.split(/[\\/]/).includes("..")
+  ) {
     throw new Error(`Path outside project: ${userPath}`);
   }
-
-  return fullPath;
 }
 
 /**

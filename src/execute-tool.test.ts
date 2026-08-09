@@ -422,3 +422,63 @@ describe("codemode integration", () => {
     }
   });
 });
+
+describe("createExecuteTool per-call bindings", () => {
+  test("recreates bindings per execute call with signal and onUpdate", async () => {
+    const calls: Array<{ signal?: AbortSignal; hasOnUpdate: boolean }> = [];
+    const tool = createExecuteTool({
+      typeDefs: `declare function progress(message: string): void;
+declare const codemode: { progress(message: string): void };
+`,
+      getBindings: ({ signal, onUpdate }) => {
+        calls.push({ signal, hasOnUpdate: typeof onUpdate === "function" });
+        return {
+          ...bindings,
+          progress(message: string) {
+            onUpdate?.({
+              content: [{ type: "text", text: `progress-from-binding:${message}` }],
+              details: { progress: true },
+            });
+          },
+        } satisfies ToolBindings;
+      },
+      executor: { kind: "quickjs" },
+    });
+
+    const updates: string[] = [];
+    const controller = new AbortController();
+    const result = await tool.execute!(
+      "id-1",
+      { code: 'codemode.progress("hi"); return 1;' },
+      controller.signal,
+      (u: { content?: Array<{ type: string; text?: string }> }) => {
+        const text = u.content?.[0]?.text;
+        if (typeof text === "string") updates.push(text);
+      },
+      {} as never,
+    );
+
+    expect(result.isError).not.toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.signal).toBe(controller.signal);
+    expect(calls[0]?.hasOnUpdate).toBe(true);
+    expect(updates.some((u) => u.includes("progress-from-binding:hi"))).toBe(true);
+  });
+
+  test("static bindings option still works without getBindings", async () => {
+    const tool = createExecuteTool({
+      typeDefs: "",
+      bindings,
+      executor: { kind: "quickjs" },
+    });
+    const result = await tool.execute!(
+      "id-2",
+      { code: "return 42;" },
+      undefined,
+      () => {},
+      {} as never,
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.content?.[0]?.text).toContain("42");
+  });
+});
