@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -101,5 +102,53 @@ describe("tag-based distribution docs", () => {
     expect(readme).toContain("npm run publish:npm");
     expect(readme).toContain("pi-package");
     expect(readme).toContain("pi install npm:@boozedog/pi-codemode");
+  });
+});
+
+describe("project-local Pi config hygiene", () => {
+  test("does not track or publish project-local .pi config", () => {
+    const gitignore = readFileSync(join(process.cwd(), ".gitignore"), "utf8");
+    expect(gitignore).toMatch(/^\.pi\//m);
+
+    const tracked = execFileSync("git", ["ls-files", ".pi", ".pi/codemode.json"], {
+      encoding: "utf8",
+      cwd: process.cwd(),
+    }).trim();
+    expect(tracked).toBe("");
+
+    const pack = execFileSync("npm", ["pack", "--dry-run", "--json"], {
+      encoding: "utf8",
+      cwd: process.cwd(),
+    });
+    // npm pack --json prints a JSON array; paths live in filename lists depending on npm version
+    expect(pack).not.toMatch(/\.pi\//);
+    expect(pack).not.toContain("codemode.json");
+  });
+
+  test("ships a host-only examples/codemode.json without personal MCP servers", () => {
+    const examplePath = join(process.cwd(), "examples", "codemode.json");
+    expect(existsSync(examplePath)).toBe(true);
+    const example = JSON.parse(readFileSync(examplePath, "utf8")) as {
+      mcp?: unknown;
+      cli?: Record<string, { backend?: string; operations?: string[] }>;
+    };
+
+    expect(example.mcp).toBeUndefined();
+    expect(example.cli).toBeTruthy();
+    for (const [name, tool] of Object.entries(example.cli ?? {})) {
+      expect({ tool: name, backend: tool.backend }).toEqual({ tool: name, backend: "host" });
+    }
+    expect(example.cli?.gh?.operations).toEqual(
+      expect.arrayContaining([
+        "issueListBlockedBy",
+        "issueAddBlockedBy",
+        "issueRemoveBlockedBy",
+        "issueListBlocking",
+      ]),
+    );
+    expect(example.cli?.find?.backend).toBe("host");
+    expect(JSON.stringify(example)).not.toContain("just-bash");
+    expect(JSON.stringify(example)).not.toContain("chrome-devtools");
+    expect(JSON.stringify(example)).not.toContain("sfw");
   });
 });

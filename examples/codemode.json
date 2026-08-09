@@ -1,4 +1,9 @@
 {
+  "mode": "on",
+  "executor": {
+    "type": "quickjs",
+    "timeoutMs": 120000
+  },
   "cli": {
     "git": {
       "backend": "host",
@@ -37,7 +42,11 @@
         "prList",
         "prDiff",
         "prChecks",
-        "prStatus"
+        "prStatus",
+        "issueListBlockedBy",
+        "issueAddBlockedBy",
+        "issueRemoveBlockedBy",
+        "issueListBlocking"
       ]
     },
     "rg": {

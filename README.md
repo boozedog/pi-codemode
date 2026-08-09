@@ -187,7 +187,7 @@ Codemode loads JSON config from:
 1. `~/.pi/agent/codemode.json`
 2. `$PROJECT/.pi/codemode.json`
 
-Project config overrides global config. See `examples/codemode.json` for a starter configuration with typed `git`, `gh`, `rg`, `find`, `grep`, and `ls` capabilities.
+Project config overrides global config. Copy `examples/codemode.json` to `~/.pi/agent/codemode.json` (global) or `$PROJECT/.pi/codemode.json` (project-local). Project `.pi/` is gitignored personal override space — do not commit it. The example is host-only `cli.*` with no personal MCP servers.
 
 Default config:
 

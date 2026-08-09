@@ -40,5 +40,5 @@ temp/
 *.temp
 .cache/
 
-# Pi-specific
-.pi/codemode-packages/
+# Pi-specific (project-local config/overrides — never commit)
+.pi/
