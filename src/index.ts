@@ -128,8 +128,10 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Session lifecycle ---
 
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
-    // Store original tool set for toggling
-    originalTools = pi.getActiveTools();
+    // Store baseline native tool set for toggling back to "off".
+    // Strip codemode-owned names in case Pi already activated newly registered tools.
+    const owned = new Set(codemodeOwnedTools());
+    originalTools = pi.getActiveTools().filter((tool) => !owned.has(tool));
 
     // Build search index over all Pi tools
     const piTools = pi.getAllTools().map((t) => ({
@@ -230,13 +232,52 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   }
 
   function deactivateCodemode() {
-    const nativeTools = originalTools.filter((tool) => !codemodeOwnedTools().includes(tool));
-    if (currentMode !== "off" && nativeTools.length > 0) {
-      pi.setActiveTools(nativeTools);
-    } else if (currentMode === "off" && nativeTools.length !== originalTools.length) {
-      pi.setActiveTools(nativeTools);
+    // When leaving on/yolo, put back tools those modes strip (bash, edit).
+    // When already starting in off, only drop codemode-owned names — don't invent tools.
+    const leavingCodemode = currentMode !== "off";
+    const desired = nativeToolsForOffMode({ restoreStripped: leavingCodemode });
+    const current = pi.getActiveTools();
+    if (!sameToolSet(current, desired)) {
+      pi.setActiveTools(desired);
     }
     currentMode = "off";
+  }
+
+  function sameToolSet(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false;
+    const setB = new Set(b);
+    return a.every((name) => setB.has(name));
+  }
+
+  /**
+   * Tools to activate when codemode is off: session baseline minus codemode-owned tools.
+   * Optionally restore host tools that codemode modes intentionally strip (bash, edit),
+   * even if the session_start snapshot omitted them (common with partial active sets).
+   */
+  function nativeToolsForOffMode(options: { restoreStripped: boolean }): string[] {
+    const owned = new Set(codemodeOwnedTools());
+    const allHost = pi
+      .getAllTools()
+      .map((tool) => tool.name)
+      .filter((name) => !owned.has(name));
+    const available = new Set(allHost);
+    const baseline = originalTools.filter((tool) => !owned.has(tool) && available.has(tool));
+
+    // Snapshot never captured native tools (only codemode-owned were active) — use full host set.
+    if (baseline.length === 0) {
+      return allHost;
+    }
+
+    const restored = [...baseline];
+    if (options.restoreStripped) {
+      // Modes strip bash/edit; put them back if the host still provides them.
+      for (const name of ["bash", "edit"] as const) {
+        if (available.has(name) && !restored.includes(name)) {
+          restored.push(name);
+        }
+      }
+    }
+    return restored;
   }
 
   function codemodeOwnedTools() {

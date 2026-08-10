@@ -54,8 +54,10 @@ function createPiMock() {
     getActiveTools: vi.fn(() => ["read", "write", "bash"]),
     getAllTools: vi.fn(() => [
       { name: "read", description: "Read files" },
-      { name: "codemode", description: "Run codemode" },
+      { name: "write", description: "Write files" },
+      { name: "edit", description: "Edit files" },
       { name: "bash", description: "Run shell commands" },
+      { name: "codemode", description: "Run codemode" },
     ]),
     setActiveTools: vi.fn((tools: string[]) => activeTools.push(tools)),
   };
@@ -436,7 +438,11 @@ describe("codemodeExtension", () => {
       "apply_patch",
       "codemode",
     ]);
-    expect(pi.setActiveTools).toHaveBeenNthCalledWith(3, ["read", "write", "bash"]);
+    expect(pi.setActiveTools).toHaveBeenNthCalledWith(
+      3,
+      expect.arrayContaining(["read", "write", "bash"]),
+    );
+    expect(pi.setActiveTools.mock.calls[2]?.[0]).not.toContain("codemode");
     expect(pi.setActiveTools).toHaveBeenNthCalledWith(4, [
       "read",
       "write",
@@ -444,6 +450,66 @@ describe("codemodeExtension", () => {
       "apply_patch",
       "codemode",
     ]);
+  });
+
+  test("restores native bash when leaving codemode even if session snapshot omitted it", async () => {
+    loadConfig.mockReturnValue({
+      mode: "on",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    });
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, commands, ctx } = createPiMock();
+    // Simulate Pi sessions where getActiveTools() at start lacks bash (filtered/partial),
+    // but bash remains a registered host tool.
+    pi.getActiveTools.mockReturnValue(["read", "write"]);
+    pi.getAllTools.mockReturnValue([
+      { name: "read", description: "Read files" },
+      { name: "write", description: "Write files" },
+      { name: "edit", description: "Edit files" },
+      { name: "bash", description: "Run shell commands" },
+      { name: "codemode", description: "Run codemode" },
+    ]);
+    codemodeExtension(pi as never);
+    await handlers.get("session_start")?.({}, ctx);
+    pi.setActiveTools.mockClear();
+
+    await commands.get("codemode")?.handler("yolo", ctx);
+    expect(pi.setActiveTools).toHaveBeenLastCalledWith(
+      expect.arrayContaining(["bash", "codemode"]),
+    );
+
+    await commands.get("codemode")?.handler("off", ctx);
+    const offTools = pi.setActiveTools.mock.calls.at(-1)?.[0] as string[];
+    expect(offTools).toEqual(expect.arrayContaining(["read", "write", "bash", "edit"]));
+    expect(offTools).not.toEqual(expect.arrayContaining(["codemode"]));
+    expect(offTools).not.toContain("replace_in_file");
+    expect(offTools).not.toContain("apply_patch");
+  });
+
+  test("off mode always reapplies native tools after on (never leaves codemode set stuck)", async () => {
+    loadConfig.mockReturnValue({
+      mode: "on",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    });
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, commands, ctx } = createPiMock();
+    // Only codemode-owned names in the active snapshot — previous bug skipped setActiveTools.
+    pi.getActiveTools.mockReturnValue(["codemode", "replace_in_file", "apply_patch"]);
+    pi.getAllTools.mockReturnValue([
+      { name: "read", description: "Read" },
+      { name: "write", description: "Write" },
+      { name: "bash", description: "Bash" },
+      { name: "codemode", description: "Codemode" },
+    ]);
+    codemodeExtension(pi as never);
+    await handlers.get("session_start")?.({}, ctx);
+    pi.setActiveTools.mockClear();
+
+    await commands.get("codemode")?.handler("off", ctx);
+    expect(pi.setActiveTools).toHaveBeenCalled();
+    const offTools = pi.setActiveTools.mock.calls.at(-1)?.[0] as string[];
+    expect(offTools).toEqual(expect.arrayContaining(["read", "write", "bash"]));
+    expect(offTools).not.toContain("codemode");
   });
 
   test("/codemode yolo enables yolo mode from Pi's string args", async () => {
