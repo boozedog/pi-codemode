@@ -53,7 +53,7 @@ Generated code only receives explicit globals:
 - `codemode.describe_tools({ namespace, tool? })` shows MCP namespace/tool details.
 - `codemode.plan_npm_script({ script })` decomposes a safe package script into visible `cli.*` calls without executing it.
 - `codemode.run_npm_script({ script, verbose? })` decomposes a safe package script, shows the plan, and executes only the surfaced `cli.*` calls.
-- `codemode.<namespace>.<tool>(args)` calls configured MCP tools.
+- `mcp.<namespace>.<tool>(args)` calls configured MCP tools. The legacy `codemode.<namespace>.<tool>(args)` form remains supported.
 - `cli.<tool>.<operation>(args)` calls configured typed CLI capabilities.
 - `print(...args)` emits result output.
 - `π.key` reads string constants passed in the `strings` parameter.
@@ -179,7 +179,7 @@ Operation-specific timeouts can be configured with object-form `operations`:
 
 ## MCP discovery workflow
 
-MCP tools are exposed under `codemode.*` only:
+MCP tools are exposed under the preferred `mcp.*` namespace. The legacy `codemode.<namespace>.<tool>()` form remains supported:
 
 ```ts
 const github = await codemode.describe_tools({ namespace: "github" });
@@ -188,7 +188,7 @@ print(github);
 const details = await codemode.describe_tools({ namespace: "github", tool: "search_issues" });
 print(details);
 
-return await codemode.github.search_issues({ query: "is:open label:bug" });
+return await mcp.github.search_issues({ query: "is:open label:bug" });
 ```
 
 Use `codemode.list_mcp_servers()` to see available namespaces and `codemode.list_tools({ namespace })` to page through large cached tool lists. Use `codemode.search_tools({ query })` when you do not know the namespace or exact tool name.

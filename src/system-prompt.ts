@@ -25,6 +25,13 @@ individually, write TypeScript code that calls multiple tools and returns just w
 Your code is **type-checked** against the tool API before execution. Type errors are
 returned for correction — no side effects occur until types are valid.
 
+### Namespace Map
+
+- \`codemode.*\` — Codemode built-ins such as discovery and npm helpers.
+- \`mcp.<namespace>.<tool>(...)\` — configured MCP server tools.
+- \`cli.<command>.<operation>(...)\` — configured host CLI wrappers.
+- \`codemode.<namespace>.<tool>(...)\` is retained only as a legacy MCP alias.
+
 ### Built-in Tool API
 
 \`\`\`typescript
@@ -33,7 +40,7 @@ ${builtinTypeDefs}
 ${mcpSummary ? "\n" + mcpSummary + "\n" : ""}
 ### How to use
 
-Call the top-level \`codemode\` tool with a TypeScript code body. Use top-level \`read\` for file inspection; file mutation helpers are intentionally unavailable inside guest code. Use top-level visible patch editing instead (patch results render as diffs in chat). Use the in-guest \`codemode.*\` object for discovery and MCP tools. Prefer \`return\` for the final value. Use \`print()\` only for diagnostics or intermediate output you do not also return.
+Call the top-level \`codemode\` tool with a TypeScript code body. Use top-level \`read\` for file inspection; file mutation helpers are intentionally unavailable inside guest code. Use top-level visible patch editing instead (patch results render as diffs in chat). Use \`codemode.*\` for built-in discovery helpers and \`mcp.*\` for MCP tools. Prefer \`return\` for the final value. Use \`print()\` only for diagnostics or intermediate output you do not also return.
 
 Write human-readable, nicely formatted TypeScript with normal line breaks in codemode calls. Avoid cramming multiple statements into one long line; the code is shown in the transcript while it runs and should be easy for the user to review.
 
@@ -121,7 +128,7 @@ const details = await codemode.describe_tools({
 print(details);
 
 // Step 3: Call with the correct parameters
-const issues = await codemode.github.search_issues({ query: "is:open label:bug" });
+const issues = await mcp.github.search_issues({ query: "is:open label:bug" });
 return issues;
 \`\`\`
 

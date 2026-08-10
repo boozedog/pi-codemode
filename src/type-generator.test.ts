@@ -60,6 +60,21 @@ describe("built-in file tool type definitions", () => {
 });
 
 describe("MCP server type definitions", () => {
+  test("exposes MCP servers under the mcp namespace", () => {
+    const typeDefs =
+      generateBuiltinTypeDefs() +
+      generateMcpServerTypeDefs([
+        {
+          serverName: "GitHub",
+          namespace: "github",
+          tools: [{ name: "search_issues", inputSchema: { type: "object" } }],
+        },
+      ]);
+
+    expect(typeDefs).toContain("declare const mcp: McpServerNamespaces;");
+    expect(typeCheck("await mcp.github.search_issues({});", typeDefs).errors).toEqual([]);
+  });
+
   test("sanitizes tool and namespace names and maps JSON schema properties", () => {
     const typeDefs = generateMcpServerTypeDefs([
       {

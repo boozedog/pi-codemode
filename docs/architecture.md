@@ -9,7 +9,7 @@ Pi Codemode exposes one primary Pi tool, `execute_tools`, where the model writes
 - codemode-only MCP tools
 - discovery helpers such as `search_tools` and `describe_tools`
 
-The generated API exposes Pi-aligned top-level file helpers plus `codemode.*` for discovery and MCP namespaces:
+The generated API exposes Pi-aligned top-level file helpers, `codemode.*` for built-ins and discovery, and `mcp.*` for MCP namespaces:
 
 ```ts
 const [pkg, readme] = await Promise.all([
@@ -36,14 +36,14 @@ Pi plugin
   -> Pi-native execute_tools wrapper
   -> QuickJS sandbox executor
   -> async host-function bridge
-  -> Pi safe tools + host cli.* + codemode-only MCP
+  -> Pi safe tools + host cli.* + codemode-only mcp.*
 ```
 
 Deno remains an optional/future executor behind the same interface. Node VM is intentionally skipped for now.
 
 ## Executor choices
 
-QuickJS is the default MVP executor (`executor.type: "quickjs"`). It runs code in an embedded QuickJS runtime with an explicit host bridge and no direct Node, filesystem, environment, network, or subprocess globals. Tool access is limited to injected globals (`codemode`, `$`, `shell`, `print`, and `π`).
+QuickJS is the default MVP executor (`executor.type: "quickjs"`). It runs code in an embedded QuickJS runtime with an explicit host bridge and no direct Node, filesystem, environment, network, or subprocess globals. Tool access is limited to injected globals (`codemode`, `mcp`, `cli`, `print`, and `π`).
 
 Deno is still available as an optional executor (`executor.type: "deno"`) for future compatibility and experiments, but it is dormant unless selected in configuration. Configuration is loaded from `~/.pi/agent/codemode.json` and `$PROJECT/.pi/codemode.json`, with project settings taking precedence. When selected, Deno stays behind the shared executor interface and launches a no-permission subprocess. If the configured executable is missing or cannot be spawned, `execute_tools` reports a clear configured-executor-unavailable runtime error instead of silently falling back.
 
@@ -91,9 +91,9 @@ The executor should:
 2. transform/strip TypeScript
 3. evaluate JavaScript in QuickJS
 4. inject globals:
-   - `codemode`
-   - `$`
-   - `shell`
+   - `codemode` (built-ins and legacy MCP aliases)
+   - `mcp` (preferred MCP namespaces)
+   - `cli` (host CLI wrappers)
    - `print`
    - `π`
 5. route all host capabilities through an async host-function bridge
@@ -155,7 +155,7 @@ Useful modules/designs to adapt:
 
 Things intentionally changed:
 
-- `tools.*` API -> `codemode.*`
+- `tools.*` API -> `codemode.*` built-ins plus `mcp.*` MCP namespaces
 - free-form shell backends -> allowlisted host `cli.*` only
 - Node `vm` executor -> QuickJS target, Deno optional
 - old JSON Schema -> TypeScript generator -> Cloudflare helper where suitable
@@ -170,7 +170,7 @@ Design:
 - expose tools in generated code through nested namespaces:
 
 ```ts
-await codemode.github.search_issues({ query: "is:open label:bug" });
+await mcp.github.search_issues({ query: "is:open label:bug" });
 ```
 
 - connect MCP servers lazily on first actual call

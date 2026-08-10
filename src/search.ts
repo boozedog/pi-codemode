@@ -17,7 +17,7 @@ export interface SearchDoc {
   description: string;
   /** "pi" or MCP server namespace */
   source: string;
-  /** How to call it: "read({ path })" or "codemode.github.search_issues({ ... })" */
+  /** How to call it: "read({ path })" or "mcp.github.search_issues({ ... })" */
   callSig: string;
   /** Parameter names joined (for matching on param names) */
   params: string;
@@ -114,7 +114,7 @@ export function buildSearchIndex(
           name: tool.name,
           description: tool.description ?? "",
           source: server.namespace,
-          callSig: `codemode.${server.namespace}.${tool.name}()`,
+          callSig: `mcp.${server.namespace}.${tool.name}()`,
           params: paramNames.join(" "),
         });
       }

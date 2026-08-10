@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { createToolBindings } from "./tool-bindings.js";
 import type { McpServerInfo } from "./search.js";
 
@@ -120,12 +120,42 @@ describe("createToolBindings MCP discovery", () => {
     ).resolves.toContain("unified diff");
   });
 
+  test("calls MCP tools through the preferred mcp namespace", async () => {
+    const call = vi.fn<() => Promise<string>>(async () => "ok");
+    const bindings = createToolBindings({
+      cwd: process.cwd(),
+      mcpServers,
+      mcpClient: {
+        available: true,
+        getServers: () => mcpServers,
+        listServers: () => ["github-mcp", "slack"],
+        warmCache: async () => mcpServers,
+        ensureServerConnected: async () => mcpServers[0],
+        call,
+        shutdown: async () => undefined,
+      },
+    });
+
+    await expect(
+      (bindings.mcp as Record<string, Record<string, unknown>>).github.search_issues,
+    ).toBeDefined();
+    await expect(
+      (
+        (bindings.mcp as Record<string, Record<string, (args: unknown) => Promise<string>>>).github
+          .search_issues as (args: unknown) => Promise<string>
+      )({ query: "test" }),
+    ).resolves.toBe("ok");
+    expect(call).toHaveBeenCalledWith("github", "search_issues", { query: "test" });
+  });
+
   test("lists MCP servers without exposing them as top-level tools", async () => {
     const bindings = createToolBindings({ cwd: process.cwd(), mcpServers });
 
     await expect(bindings.list_mcp_servers()).resolves.toContain(
-      "codemode.github — github-mcp (2 cached tools)",
+      "mcp.github — github-mcp (2 cached tools)",
     );
+    expect(typeof bindings.mcp).toBe("object");
+    expect(typeof (bindings.mcp as Record<string, unknown>).github).toBe("object");
     expect(typeof bindings.github).toBe("object");
     expect(bindings.search_issues).toBeUndefined();
   });
@@ -174,7 +204,7 @@ describe("createToolBindings MCP discovery", () => {
 
     await expect(
       bindings.list_tools({ namespace: "github", offset: 1, limit: 1 }),
-    ).resolves.toContain("codemode.github tools 2-2 of 2");
+    ).resolves.toContain("mcp.github tools 2-2 of 2");
     await expect(
       bindings.list_tools({ namespace: "github", offset: 1, limit: 1 }),
     ).resolves.toContain("create_issue(args?: Record<string, unknown>) — Create an issue");

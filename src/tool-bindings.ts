@@ -1,7 +1,7 @@
 // tool-bindings.ts — Create runtime bindings that back the TypeScript type declarations.
 //
 // Each binding wraps a real Pi tool implementation and returns simplified values.
-// MCP tools are exposed as nested namespaces (e.g., codemode.github.search_issues).
+// MCP tools are exposed as nested namespaces (e.g., mcp.github.search_issues).
 
 import type { AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
 import { readFileSync } from "node:fs";
@@ -31,6 +31,7 @@ export interface ToolBindings {
   plan_npm_script(params: { script: string }): Promise<string>;
   run_npm_script(params: { script: string; verbose?: boolean }): Promise<string>;
   cli: Record<string, unknown>;
+  mcp?: Record<string, unknown>;
   progress(message: string): void;
   /** MCP server namespaces are added dynamically */
   [serverNamespace: string]: unknown;
@@ -144,7 +145,7 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
       return mcpServers
         .map(
           (server) =>
-            `codemode.${server.namespace} — ${server.serverName} (${server.tools.length} cached tools)`,
+            `mcp.${server.namespace} — ${server.serverName} (${server.tools.length} cached tools)`,
         )
         .join("\n");
     },
@@ -183,7 +184,7 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
       if (!params.tool) {
         // List all tools in this namespace
         if (server.tools.length === 0) {
-          return `codemode.${server.namespace} has no cached tools. Call any tool to trigger a connection.`;
+          return `mcp.${server.namespace} has no cached tools. Call any tool to trigger a connection.`;
         }
         return listServerTools(server, 0, 50);
       }
@@ -192,7 +193,7 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
       const tool = server.tools.find((t) => t.name === params.tool);
       if (!tool) {
         const names = server.tools.map((t) => t.name).join(", ");
-        return `Unknown tool "${params.tool}" in codemode.${server.namespace}. Available: ${names}`;
+        return `Unknown tool "${params.tool}" in mcp.${server.namespace}. Available: ${names}`;
       }
 
       return generateToolSignature(server.namespace, tool.name, tool.description, tool.inputSchema);
@@ -215,9 +216,10 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
     return mcpClient.ensureServerConnected(namespace);
   }
 
-  // Add per-server MCP namespaces as proxies
-  // These will be callable as codemode.<namespace>.<tool>(args)
+  // Add per-server MCP namespaces as proxies. `mcp` is the preferred root;
+  // the direct namespace remains as a compatibility alias for older callers.
   if (mcpServers) {
+    const mcpBindings: Record<string, unknown> = {};
     for (const server of mcpServers) {
       const serverProxy: Record<string, (args?: Record<string, unknown>) => Promise<string>> = {};
 
@@ -230,7 +232,7 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
       }
 
       // Add a Proxy fallback for uncached tools
-      bindings[server.namespace] = new Proxy(serverProxy, {
+      const proxy = new Proxy(serverProxy, {
         get(target, prop: string) {
           if (prop in target) return target[prop];
           // Return a function that will attempt the call (lazy connect)
@@ -241,7 +243,10 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
           };
         },
       });
+      mcpBindings[server.namespace] = proxy;
+      bindings[server.namespace] = proxy;
     }
+    bindings.mcp = mcpBindings;
   }
 
   return bindings;
@@ -280,7 +285,7 @@ function simpleSchemaType(schema: Record<string, unknown>): string {
 
 function listServerTools(server: McpServerInfo, offset = 0, limit = 50): string {
   if (server.tools.length === 0) {
-    return `codemode.${server.namespace} has no cached tools. Call any tool to trigger a connection.`;
+    return `mcp.${server.namespace} has no cached tools. Call any tool to trigger a connection.`;
   }
 
   const safeOffset = Math.max(0, offset);
@@ -288,7 +293,7 @@ function listServerTools(server: McpServerInfo, offset = 0, limit = 50): string 
   const visible = server.tools.slice(safeOffset, safeOffset + safeLimit);
   const start = visible.length > 0 ? safeOffset + 1 : 0;
   const end = safeOffset + visible.length;
-  let text = `codemode.${server.namespace} tools ${start}-${end} of ${server.tools.length}`;
+  let text = `mcp.${server.namespace} tools ${start}-${end} of ${server.tools.length}`;
   if (visible.length < server.tools.length) {
     text += ` (showing ${visible.length} of ${server.tools.length} tools)`;
   }
@@ -354,7 +359,7 @@ function describeBuiltinTools(toolName?: string): string {
       params: "{ script: string; verbose?: boolean }",
     },
     list_mcp_servers: {
-      description: "List configured MCP server namespaces available under codemode.*.",
+      description: "List configured MCP server namespaces available under mcp.*.",
       params: "{}",
     },
     list_tools: {

@@ -142,6 +142,17 @@ export class QuickJsExecutor implements CodeExecutor {
 					}
 				});
 				globalThis.read = function(args) { return globalThis.__hostCall('read', args ?? {}); };
+				globalThis.mcp = new Proxy({}, {
+					get(_target, prop) {
+						if (prop === 'then') return undefined;
+						return new Proxy(function(args) { return globalThis.__hostCall('mcp.' + String(prop), args ?? {}); }, {
+							get(_fnTarget, child) {
+								if (child === 'then') return undefined;
+								return function(args) { return globalThis.__hostCall('mcp.' + String(prop) + '.' + String(child), args ?? {}); };
+							}
+						});
+					}
+				});
 				globalThis.cli = new Proxy({}, {
 					get(_target, tool) {
 						if (tool === 'then') return undefined;
@@ -255,6 +266,7 @@ export class QuickJsExecutor implements CodeExecutor {
         globalThis.__hostCall = undefined;
         globalThis.read = undefined;
         globalThis.codemode = undefined;
+        globalThis.mcp = undefined;
         globalThis.cli = undefined;
         globalThis.print = undefined;
         globalThis.console = undefined;
