@@ -9,7 +9,7 @@ vi.mock("@mariozechner/pi-tui", () => ({
     constructor(public text: string) {}
   },
 }));
-import { buildCliArgv, createCliBindings } from "./cli.js";
+import { buildCliArgv, createCliBindings, validateArgs } from "./cli.js";
 import { CLI_OPERATIONS } from "./cli-operations.js";
 import { QuickJsExecutor } from "./executor/quickjs-executor.js";
 import { generateBuiltinTypeDefs } from "./type-generator.js";
@@ -529,6 +529,51 @@ describe("cli command capabilities", () => {
     expect(() => buildCliArgv("ls", "list", { recursive: true })).toThrow(
       "Unknown CLI argument: recursive",
     );
+  });
+
+  test("rejects object and unknown-typed properties instead of silently allowing them", () => {
+    // object-typed property: a non-object value must be rejected (previously silently allowed).
+    expect(() =>
+      validateArgs(
+        {
+          type: "object",
+          properties: { nested: { type: "object" } },
+          additionalProperties: false,
+        },
+        { nested: "not-an-object" },
+      ),
+    ).toThrow("nested must be an object");
+
+    // unknown-typed property (number): a non-conforming value must be rejected.
+    expect(() =>
+      validateArgs(
+        {
+          type: "object",
+          properties: { count: { type: "number" } },
+          additionalProperties: false,
+        },
+        { count: "not-a-number" },
+      ),
+    ).toThrow("count must be a number");
+  });
+
+  test("preserves nested property type errors", () => {
+    expect(() =>
+      validateArgs(
+        {
+          type: "object",
+          properties: {
+            options: {
+              type: "object",
+              properties: { recursive: { type: "boolean" } },
+              additionalProperties: false,
+            },
+          },
+          additionalProperties: false,
+        },
+        { options: { recursive: "yes" } },
+      ),
+    ).toThrow("options must be a boolean");
   });
 
   test("unconfigured operations return clear denial errors", async () => {
