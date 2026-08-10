@@ -166,6 +166,6 @@ export function generateEditGuidance(): string {
   return `\
 ### Edit guidance
 - File mutation is patch-only and outside codemode guest code.
-- Use the top-level visible patch editing tool for unified diffs scoped to the project root.
+- Use the top-level visible patch editing tool for unified diffs (project-root scoped in on mode; in yolo absolute paths may reach anywhere, matching bash).
 - Patch results should be rendered visibly in chat.`;
 }

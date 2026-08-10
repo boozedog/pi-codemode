@@ -89,13 +89,13 @@ const fileToolDescriptors: Record<string, { description?: string; inputSchema: J
   },
   apply_patch: {
     description:
-      "Apply a text-only unified diff safely inside the project root. Use for patch/diff-oriented edits; hunk failures return diagnostics.",
+      "Apply a text-only unified diff (project-root scoped in on mode; unscoped in yolo). Use for patch/diff-oriented edits; hunk failures return diagnostics.",
     inputSchema: {
       type: "object",
       properties: {
         patch: {
           type: "string",
-          description: "Unified diff text to apply inside the project root",
+          description: "Unified diff text to apply",
         },
       },
       required: ["patch"],

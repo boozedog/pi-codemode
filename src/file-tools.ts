@@ -1,14 +1,30 @@
 // file-tools.ts — Core file tool implementations (read, write, replace_in_file, apply_patch).
 //
 // These are host-side implementations that use Node.js fs directly.
-// Path validation ensures all operations stay within the project directory.
+// Path validation scopes operations to the project directory unless unrestricted (yolo).
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
 import { dirname, resolve, relative, isAbsolute, normalize, join, sep } from "node:path";
 
+/** Mutable path scope shared with the extension so mode flips take effect without re-registering tools. */
+export interface FileScope {
+  /** Base directory for relative paths (typically process.cwd() / project root). */
+  root: string;
+  /**
+   * When false, all paths must resolve inside root (default / on mode).
+   * When true, absolute paths may resolve anywhere; relative paths still use root (yolo mode).
+   */
+  unrestricted: boolean;
+}
+
 export interface FileToolsOptions {
-  /** Project root directory - all file operations are scoped to this directory */
-  projectRoot: string;
+  /**
+   * Project root directory. Used when `scope` is omitted; operations are always scoped
+   * (unrestricted: false). Prefer `scope` when the caller needs to flip unrestricted at runtime.
+   */
+  projectRoot?: string;
+  /** Mutable scope object. Read on every call so mode changes apply immediately. */
+  scope?: FileScope;
 }
 
 export interface ReadParams {
@@ -31,15 +47,24 @@ export interface ApplyPatchParams {
   patch: string;
 }
 
+function resolveScope(options: FileToolsOptions): FileScope {
+  if (options.scope) return options.scope;
+  if (options.projectRoot) {
+    return { root: options.projectRoot, unrestricted: false };
+  }
+  throw new Error("createFileTools requires scope or projectRoot");
+}
+
 /**
  * Create file tool implementations scoped to a project directory.
+ * Pass a mutable `scope` object to flip unrestricted at runtime (yolo mode).
  */
 export function createFileTools(options: FileToolsOptions) {
-  const { projectRoot } = options;
+  const scope = resolveScope(options);
 
   return {
     read(params: ReadParams): string {
-      const fullPath = validateAndResolvePath(params.path, projectRoot);
+      const fullPath = validateAndResolvePath(params.path, scope);
       const content = readFileSync(fullPath, "utf-8");
 
       // Handle line-based offset/limit
@@ -59,7 +84,7 @@ export function createFileTools(options: FileToolsOptions) {
     },
 
     write(params: WriteParams): void {
-      const fullPath = validateAndResolvePath(params.path, projectRoot);
+      const fullPath = validateAndResolvePath(params.path, scope);
 
       // Create parent directories if needed
       const dir = dirname(fullPath);
@@ -71,11 +96,11 @@ export function createFileTools(options: FileToolsOptions) {
     },
 
     apply_patch(params: ApplyPatchParams): string {
-      return applyUnifiedPatch(params.patch, projectRoot);
+      return applyUnifiedPatch(params.patch, scope);
     },
 
     replace_in_file(params: EditParams): string {
-      const fullPath = validateAndResolvePath(params.path, projectRoot);
+      const fullPath = validateAndResolvePath(params.path, scope);
       let content = readFileSync(fullPath, "utf-8");
 
       // Track replacement positions to detect overlaps
@@ -133,18 +158,25 @@ export function createFileTools(options: FileToolsOptions) {
 }
 
 /**
- * Validate and resolve a user-provided path to an absolute path within the project.
- * Throws if the path attempts to escape the project directory (including via symlinks).
+ * Validate and resolve a user-provided path to an absolute path.
  *
- * Policy: reject any path whose lexical or real (symlink-resolved) location is outside
- * the project root. For not-yet-existing targets, the nearest existing ancestor is
- * realpath'd and the remaining segments are re-checked lexically under that real base.
+ * When scope.unrestricted is false: reject any path whose lexical or real
+ * (symlink-resolved) location is outside the project root. For not-yet-existing
+ * targets, the nearest existing ancestor is realpath'd and the remaining segments
+ * are re-checked lexically under that real base.
+ *
+ * When scope.unrestricted is true: absolute paths resolve anywhere; relative paths
+ * still resolve against scope.root; no containment check (yolo mode).
  */
-function validateAndResolvePath(userPath: string, projectRoot: string): string {
-  const resolvedRoot = resolveRealOrNormalize(projectRoot);
+function validateAndResolvePath(userPath: string, scope: FileScope): string {
+  const resolvedRoot = resolveRealOrNormalize(scope.root);
   const candidate = isAbsolute(userPath)
     ? normalize(userPath)
     : normalize(join(resolvedRoot, userPath));
+
+  if (scope.unrestricted) {
+    return resolvePathUnrestricted(candidate);
+  }
 
   // Lexical containment before touching the filesystem (blocks .. traversal).
   assertPathInsideRoot(candidate, resolvedRoot, userPath);
@@ -154,6 +186,40 @@ function validateAndResolvePath(userPath: string, projectRoot: string): string {
   assertPathInsideRoot(realPath, resolvedRoot, userPath);
 
   return realPath;
+}
+
+/** Resolve path without project containment (absolute anywhere; relative already joined to root). */
+function resolvePathUnrestricted(candidate: string): string {
+  if (existsSync(candidate)) {
+    try {
+      return realpathSync(candidate);
+    } catch {
+      return normalize(resolve(candidate));
+    }
+  }
+
+  // Walk parents until one exists so new files land on the real ancestor path.
+  let probe = candidate;
+  const missing: string[] = [];
+  while (!existsSync(probe)) {
+    const parent = dirname(probe);
+    if (parent === probe) break;
+    missing.unshift(probe.slice(parent.length).replace(/^[\\/]/, ""));
+    probe = parent;
+  }
+
+  if (!existsSync(probe)) {
+    return normalize(resolve(candidate));
+  }
+
+  let realBase: string;
+  try {
+    realBase = realpathSync(probe);
+  } catch {
+    return normalize(resolve(candidate));
+  }
+
+  return missing.length > 0 ? join(realBase, ...missing) : realBase;
 }
 
 function resolveRealOrNormalize(path: string): string {
@@ -258,13 +324,13 @@ interface ParsedHunk {
   lines: string[];
 }
 
-function applyUnifiedPatch(patch: string, projectRoot: string): string {
+function applyUnifiedPatch(patch: string, scope: FileScope): string {
   const files = parsePatch(patch);
   if (files.length === 0) throw new Error("No file patches found in unified diff");
 
   const diffs: string[] = [];
   for (const file of files) {
-    const fullPath = validateAndResolvePath(file.path, projectRoot);
+    const fullPath = validateAndResolvePath(file.path, scope);
     const original = existsSync(fullPath) ? readFileSync(fullPath, "utf-8") : "";
     const updated = applyFilePatch(original, file);
     const dir = dirname(fullPath);

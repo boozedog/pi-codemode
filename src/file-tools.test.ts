@@ -1,7 +1,15 @@
 // file-tools.test.ts — Tests for file tool implementations.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, symlinkSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  mkdirSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createFileTools } from "./file-tools.js";
@@ -399,6 +407,89 @@ describe("file tools", () => {
       // relative(root, other) is absolute or starts with .. when outside — never startsWith(root+"/")
       const outside = resolve(projectDir, "..", "not-in-project.txt");
       expect(() => tools.read({ path: outside })).toThrow("Path outside project");
+    });
+  });
+
+  describe("unrestricted scope", () => {
+    let outsideDir: string;
+    let scope: { root: string; unrestricted: boolean };
+
+    beforeEach(() => {
+      outsideDir = mkdtempSync(join(tmpdir(), "codemode-unrestricted-"));
+      scope = { root: projectDir, unrestricted: true };
+      tools = createFileTools({ scope });
+    });
+
+    afterEach(() => {
+      rmSync(outsideDir, { recursive: true, force: true });
+    });
+
+    it("replace_in_file succeeds on absolute path outside root when unrestricted", () => {
+      const outsidePath = join(outsideDir, "scratch.txt");
+      writeFileSync(outsidePath, "hello outside");
+      const result = tools.replace_in_file({
+        path: outsidePath,
+        edits: [{ oldText: "outside", newText: "world" }],
+      });
+      expect(result).toContain("Replaced 1 occurrence");
+      expect(readFileSync(outsidePath, "utf-8")).toBe("hello world");
+    });
+
+    it("apply_patch succeeds on absolute path outside root when unrestricted", () => {
+      const outsidePath = join(outsideDir, "scratch.txt");
+      writeFileSync(outsidePath, "line1\nline2\nline3\n");
+      const result = tools.apply_patch({
+        patch: `--- a/${outsidePath}
++++ b/${outsidePath}
+@@ -1,3 +1,3 @@
+ line1
+-line2
++changed
+ line3
+`,
+      });
+      expect(result).toContain("Applied patch to 1 file");
+      expect(readFileSync(outsidePath, "utf-8")).toBe("line1\nchanged\nline3\n");
+    });
+
+    it("flipping unrestricted back to false restores Path outside project error", () => {
+      const outsidePath = join(outsideDir, "scratch.txt");
+      writeFileSync(outsidePath, "hello outside");
+      tools.replace_in_file({
+        path: outsidePath,
+        edits: [{ oldText: "outside", newText: "world" }],
+      });
+      expect(readFileSync(outsidePath, "utf-8")).toBe("hello world");
+
+      scope.unrestricted = false;
+      expect(() =>
+        tools.replace_in_file({
+          path: outsidePath,
+          edits: [{ oldText: "world", newText: "again" }],
+        }),
+      ).toThrow("Path outside project");
+      expect(() =>
+        tools.apply_patch({
+          patch: `--- a/${outsidePath}
++++ b/${outsidePath}
+@@ -1 +1 @@
+-hello world
++blocked
+`,
+        }),
+      ).toThrow("Path outside project");
+      expect(readFileSync(outsidePath, "utf-8")).toBe("hello world");
+    });
+
+    it("relative paths still resolve against root when unrestricted", () => {
+      writeFileSync(join(projectDir, "inside.txt"), "rel path");
+      const result = tools.replace_in_file({
+        path: "inside.txt",
+        edits: [{ oldText: "rel", newText: "root" }],
+      });
+      expect(result).toContain("Replaced 1 occurrence");
+      expect(readFileSync(join(projectDir, "inside.txt"), "utf-8")).toBe("root path");
+      expect(existsSync(join(outsideDir, "inside.txt"))).toBe(false);
     });
   });
 });
