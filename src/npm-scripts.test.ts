@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { planNpmScript } from "./npm-scripts.js";
+import { formatCliCallArgs, formatNpmScriptPlan, planNpmScript } from "./npm-scripts.js";
 
 describe("npm script decomposition", () => {
   test("decomposes tsc build into a surfaced cli call", () => {
@@ -116,5 +116,35 @@ describe("npm script decomposition", () => {
         "check:clean-tree",
       ),
     ).toThrow("unsupported shell construct '|'");
+  });
+});
+
+describe("formatNpmScriptPlan", () => {
+  test("pretty-prints empty args and common value shapes", () => {
+    expect(formatCliCallArgs({})).toBe("{}");
+    expect(formatCliCallArgs({ paths: ["."] })).toBe('{ paths: ["."] }');
+    expect(formatCliCallArgs({ watch: true, n: 2 })).toBe("{ watch: true, n: 2 }");
+    expect(formatCliCallArgs({ deny: "warnings", paths: ["src", "test"] })).toBe(
+      '{ deny: "warnings", paths: ["src", "test"] }',
+    );
+    expect(formatCliCallArgs({ "ignore-path": ".gitignore" })).toBe(
+      '{ "ignore-path": ".gitignore" }',
+    );
+  });
+
+  test("formats a multi-call plan as copyable cli.* lines", () => {
+    const text = formatNpmScriptPlan("check", [
+      { tool: "oxfmt", operation: "check", args: { paths: ["."] } },
+      { tool: "tsc", operation: "build", args: {} },
+    ]);
+    expect(text).toBe(
+      [
+        "Plan for npm run check:",
+        '- cli.oxfmt.check({ paths: ["."] })',
+        "- cli.tsc.build({})",
+        "",
+        "No commands were executed.",
+      ].join("\n"),
+    );
   });
 });

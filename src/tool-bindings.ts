@@ -13,7 +13,7 @@ import type { CliConfig } from "./config.js";
 import { createFileTools } from "./file-tools.js";
 import type { McpClient } from "./mcp-client.js";
 import type { McpServerInfo } from "./search.js";
-import { planNpmScript } from "./npm-scripts.js";
+import { formatNpmScriptPlan, planNpmScript } from "./npm-scripts.js";
 
 /** The shape the sandbox code sees at runtime */
 export interface ToolBindings {
@@ -390,18 +390,6 @@ function describeBuiltinTools(toolName?: string): string {
   }
 
   return `${toolName}(${tool.params})\n${tool.description}`;
-}
-
-function formatNpmScriptPlan(
-  script: string,
-  calls: Array<{ tool: string; operation: string; args: Record<string, unknown> }>,
-): string {
-  const lines = [`Plan for npm run ${script}:`];
-  for (const call of calls) {
-    lines.push(`- cli.${call.tool}.${call.operation}(${JSON.stringify(call.args)})`);
-  }
-  lines.push("", "No commands were executed.");
-  return lines.join("\n");
 }
 
 /**

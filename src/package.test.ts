@@ -44,11 +44,17 @@ describe("package metadata", () => {
     expect(readme).toMatch(/Mario Zechner|Cloudflare Codemode|pi-coding-agent/i);
   });
 
-  test("builds before npm pack and git installs", () => {
+  test("builds before npm pack; prepare only rebuilds for git/source installs", () => {
     const pkg = packageJson();
 
     expect(pkg.scripts?.prepack).toBe("npm run build");
-    expect(pkg.scripts?.prepare).toBe("npm run build");
+    expect(pkg.scripts?.prepare).toBe("node ./scripts/prepare.mjs");
+    const prepare = readFileSync(join(process.cwd(), "scripts", "prepare.mjs"), "utf8");
+    expect(prepare).toContain(".git");
+    expect(prepare).toContain("dist");
+    expect(prepare).toContain("run");
+    expect(prepare).toContain("build");
+    expect(prepare).toMatch(/hasGit|\.git/);
   });
 
   test("provides a release helper and tag-based publish script", () => {

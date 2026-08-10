@@ -159,3 +159,42 @@ function fail(script: string, chain: string[], reason: string): never {
     `Refusing to decompose npm script '${script}' (chain: ${chain.join(" -> ")}): ${reason}`,
   );
 }
+
+/** Pretty-print a planned cli.* call args object for agent-readable plans. */
+export function formatCliCallArgs(args: Record<string, unknown>): string {
+  const keys = Object.keys(args);
+  if (keys.length === 0) return "{}";
+
+  const parts = keys.map((key) => {
+    const value = args[key];
+    return `${formatObjectKey(key)}: ${formatCliArgValue(value)}`;
+  });
+  return `{ ${parts.join(", ")} }`;
+}
+
+function formatObjectKey(key: string): string {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : JSON.stringify(key);
+}
+
+function formatCliArgValue(value: unknown): string {
+  if (value === null) return "null";
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[]";
+    return `[${value.map((item) => formatCliArgValue(item)).join(", ")}]`;
+  }
+  if (typeof value === "object") {
+    return formatCliCallArgs(value as Record<string, unknown>);
+  }
+  return JSON.stringify(value);
+}
+
+export function formatNpmScriptPlan(script: string, calls: NpmScriptCall[]): string {
+  const lines = [`Plan for npm run ${script}:`];
+  for (const call of calls) {
+    lines.push(`- cli.${call.tool}.${call.operation}(${formatCliCallArgs(call.args)})`);
+  }
+  lines.push("", "No commands were executed.");
+  return lines.join("\n");
+}
