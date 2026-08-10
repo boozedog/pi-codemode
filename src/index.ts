@@ -218,6 +218,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     const tools = originalTools.filter(
       (tool) =>
         tool !== "bash" &&
+        tool !== "write" &&
         // Do not activate an older execute_tools registration if a previous/other extension provides one.
         // This package intentionally registers only the Pi-facing codemode tool.
         tool !== "execute_tools" &&
@@ -238,7 +239,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   }
 
   function deactivateCodemode() {
-    // When leaving on/yolo, put back tools those modes strip (bash, edit).
+    // When leaving on/yolo, put back tools those modes strip (bash, edit, write).
     // When already starting in off, only drop codemode-owned names — don't invent tools.
     const leavingCodemode = currentMode !== "off";
     const desired = nativeToolsForOffMode({ restoreStripped: leavingCodemode });
@@ -257,7 +258,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
   /**
    * Tools to activate when codemode is off: session baseline minus codemode-owned tools.
-   * Optionally restore host tools that codemode modes intentionally strip (bash, edit),
+   * Optionally restore host tools that codemode modes intentionally strip (bash, edit, write),
    * even if the session_start snapshot omitted them (common with partial active sets).
    */
   function nativeToolsForOffMode(options: { restoreStripped: boolean }): string[] {
@@ -276,8 +277,8 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
     const restored = [...baseline];
     if (options.restoreStripped) {
-      // Modes strip bash/edit; put them back if the host still provides them.
-      for (const name of ["bash", "edit"] as const) {
+      // Modes strip bash/edit/write; put them back if the host still provides them.
+      for (const name of ["bash", "edit", "write"] as const) {
         if (available.has(name) && !restored.includes(name)) {
           restored.push(name);
         }

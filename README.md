@@ -8,10 +8,23 @@ Install the package in Pi as an extension package, then start Pi in a project as
 
 Useful controls:
 
-- `/codemode on` exposes `execute_tools` plus normal non-bash tools.
-- `/codemode yolo` exposes everything from `on` plus native `bash` when available.
-- `/codemode off` restores normal Pi tools.
+- `/codemode on` exposes `execute_tools` plus normal non-bash tools, write-locked to the project root.
+- `/codemode yolo` exposes everything from `on` plus native `bash` when available (the write escape hatch).
+- `/codemode off` restores normal Pi tools, including native `write`/`edit`/`bash`.
 - Bare `/codemode` toggles `off <-> on`.
+
+### Write-door matrix
+
+`on` mode is **write-locked**: native write-capable tools (`write`, `edit`, `bash`) are stripped from the active set. The only write doors are the root-scoped patch tools and allowlisted `cli.*` operations.
+
+| Door                                                       | `on`            | `yolo`                   |
+| ---------------------------------------------------------- | --------------- | ------------------------ |
+| codemode guest (in-guest `read` only; no mutation helpers) | read-only       | read-only                |
+| patch tools `replace_in_file` / `apply_patch`              | **root-scoped** | **unrestricted**         |
+| native `write`                                             | **DENY**        | **DENY**                 |
+| native `edit`                                              | **DENY**        | **DENY**                 |
+| native `bash`                                              | **DENY**        | **ALLOW** (escape hatch) |
+| host `cli.*`                                               | allowlisted ops | allowlisted ops          |
 
 ## The `execute_tools` shape
 
@@ -201,7 +214,7 @@ Default config:
 }
 ```
 
-`mode` can be `"on"`, `"yolo"`, or `"off"`. In `on`, Codemode exposes `execute_tools` plus normal non-bash tools. In `yolo`, native `bash` is included if Pi provides it; if not, codemode gracefully falls back to normal codemode tools and notifies you.
+`mode` can be `"on"`, `"yolo"`, or `"off"`. In `on`, Codemode exposes `execute_tools` plus normal non-bash tools, write-locked to the project root (native `write`/`edit`/`bash` are stripped; writes go through the root-scoped patch tools or allowlisted `cli.*`). In `yolo`, native `bash` is included if Pi provides it; if not, codemode gracefully falls back to normal codemode tools and notifies you. In `off`, normal Pi tools (including native `write`/`edit`/`bash`) are restored.
 
 Codemode-specific MCP servers and typed CLI capabilities can also be configured here:
 

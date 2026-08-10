@@ -13,7 +13,7 @@ export function generateSystemPromptAddition(
   const modeGuidance =
     mode === "yolo"
       ? "In yolo mode, native bash is available and has broader host access. Prefer codemode for structured tool use and use bash for shell-heavy one-offs."
-      : "In normal codemode, use codemode workflows and top-level non-bash tools. The native bash tool is not exposed.";
+      : "In normal codemode, use codemode workflows and top-level non-bash tools. The native bash tool is not exposed. Writes are restricted to the project root and go through the root-scoped patch tools (replace_in_file / apply_patch); native write/edit/bash are not exposed.";
   return `\
 ## Code Mode (${mode})
 
