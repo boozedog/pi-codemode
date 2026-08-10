@@ -217,13 +217,23 @@ describe("QuickJsExecutor", () => {
 
   test("exposes nested codemode namespaces", async () => {
     const executor = new QuickJsExecutor({ timeout: 5_000 });
+    const result = await executor.execute(`return await mcp.github.search_issues({ q: "test" });`, [
+      { name: "mcp", fns: { github: { search_issues: async (args: unknown) => args } } },
+    ]);
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toEqual({ q: "test" });
+  });
+
+  test("keeps the legacy codemode MCP namespace working", async () => {
+    const executor = new QuickJsExecutor({ timeout: 5_000 });
     const result = await executor.execute(
-      `return await codemode.github.search_issues({ q: "test" });`,
+      `return await codemode.github.search_issues({ q: "legacy" });`,
       [{ name: "codemode", fns: { github: { search_issues: async (args: unknown) => args } } }],
     );
 
     expect(result.error).toBeUndefined();
-    expect(result.result).toEqual({ q: "test" });
+    expect(result.result).toEqual({ q: "legacy" });
   });
 
   test("does not expose Node globals", async () => {

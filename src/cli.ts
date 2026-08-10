@@ -1,6 +1,8 @@
 // cli.ts — Typed command capabilities for codemode.
 
 import { spawn } from "node:child_process";
+import Ajv from "ajv";
+import type { JSONSchema7 } from "json-schema";
 import type { CliConfig, CliOperationConfig, CliToolConfig } from "./config.js";
 import { getCliOperationDefinition } from "./cli-operations.js";
 
@@ -240,31 +242,51 @@ function asArgs(args: unknown): Record<string, unknown> {
   return args as Record<string, unknown>;
 }
 
-function validateArgs(
-  schema: { required?: string[]; properties?: Record<string, unknown> },
-  args: Record<string, unknown>,
-): void {
-  const properties = schema.properties ?? {};
-  for (const key of schema.required ?? []) {
-    if (args[key] === undefined) throw new Error(`${key} is required`);
-  }
-  for (const [key, value] of Object.entries(args)) {
-    const prop = properties[key] as { type?: string; enum?: unknown[] } | undefined;
-    if (!prop) throw new Error(`Unknown CLI argument: ${key}`);
-    if (value === undefined) continue;
-    if (prop.enum && !prop.enum.includes(value))
-      throw new Error(`${key} must be one of ${prop.enum.join(", ")}`);
-    if (prop.type === "string" && typeof value !== "string")
-      throw new Error(`${key} must be a string`);
-    if (prop.type === "boolean" && typeof value !== "boolean")
-      throw new Error(`${key} must be a boolean`);
-    if (prop.type === "integer" && (typeof value !== "number" || !Number.isInteger(value)))
-      throw new Error(`${key} must be an integer`);
-    if (
-      prop.type === "array" &&
-      (!Array.isArray(value) || !value.every((v) => typeof v === "string"))
-    )
-      throw new Error(`${key} must be an array of strings`);
+const ajv = new Ajv({ allErrors: false, strict: false });
+
+/** Minimal shape of an Ajv validation error used for message formatting. */
+interface ValidationError {
+  instancePath: string;
+  keyword: string;
+  params: Record<string, unknown>;
+  message?: string;
+}
+
+/**
+ * Validate CLI operation arguments against their JSON-Schema input schema.
+ * Rejects unknown, object, and any other property type that the bespoke
+ * validator previously allowed through silently.
+ */
+export function validateArgs(schema: JSONSchema7, args: Record<string, unknown>): void {
+  const validate = ajv.compile(schema);
+  if (validate(args)) return;
+  const error = validate.errors?.[0] as ValidationError | undefined;
+  throw new Error(error ? formatValidationError(error) : "Invalid CLI arguments");
+}
+
+function formatValidationError(err: ValidationError): string {
+  const key = err.instancePath.split("/").filter(Boolean)[0] ?? "";
+  switch (err.keyword) {
+    case "additionalProperties":
+      return `Unknown CLI argument: ${String(err.params.additionalProperty)}`;
+    case "required":
+      return `${String(err.params.missingProperty)} is required`;
+    case "enum":
+      return `${key} must be one of ${(err.params.allowedValues as unknown[]).join(", ")}`;
+    case "type": {
+      const t = String(err.params.type);
+      const pathSegments = err.instancePath.split("/").filter(Boolean);
+      const isArrayItem = pathSegments.some((segment) => /^\d+$/.test(segment));
+      if (isArrayItem || t === "array") return `${key} must be an array of strings`;
+      if (t === "string") return `${key} must be a string`;
+      if (t === "boolean") return `${key} must be a boolean`;
+      if (t === "integer") return `${key} must be an integer`;
+      if (t === "number") return `${key} must be a number`;
+      if (t === "object") return `${key} must be an object`;
+      return `${key} must be a ${t}`;
+    }
+    default:
+      return `${key} ${err.message ?? "is invalid"}`;
   }
 }
 

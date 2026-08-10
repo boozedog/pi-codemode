@@ -117,13 +117,13 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(
-        `Failed to connect MCP server "${serverName}" (codemode.${namespace}): ${message}`,
+        `Failed to connect MCP server "${serverName}" (mcp.${namespace}): ${message}`,
       );
     }
 
     if (connection.status === "needs-auth") {
       throw new Error(
-        `MCP server "${serverName}" (codemode.${namespace}) requires authentication. Configure/authenticate it in pi-mcp-adapter first.`,
+        `MCP server "${serverName}" (mcp.${namespace}) requires authentication. Configure/authenticate it in pi-mcp-adapter first.`,
       );
     }
 
@@ -174,7 +174,7 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
       if (info.tools.length > 0 && !resolvedToolName) {
         const available = info.tools.map((t) => t.name).join(", ");
         throw new Error(
-          `Unknown MCP tool: codemode.${namespace}.${toolName}(). Available: ${available}`,
+          `Unknown MCP tool: mcp.${namespace}.${toolName}(). Available: ${available}`,
         );
       }
       const mcpToolName = resolvedToolName ?? toolName;
@@ -203,7 +203,7 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
 
         if (result.isError) {
           const toolInfo = info.tools.find((t) => t.name === mcpToolName);
-          let errorMsg = `MCP tool error: codemode.${namespace}.${toolName}()\n\n${text}`;
+          let errorMsg = `MCP tool error: mcp.${namespace}.${toolName}()\n\n${text}`;
           if (toolInfo?.inputSchema) {
             if (enrichError) {
               errorMsg += `\n\n${enrichError(toolInfo.inputSchema)}`;

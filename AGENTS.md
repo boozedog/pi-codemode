@@ -40,7 +40,7 @@ Before expanding executor features, keep these behaviors covered by tests:
 - awaits one async host tool call
 - resolves many concurrent host tool calls via `Promise.all`
 - propagates rejected host calls to the guest promise
-- supports nested MCP-style namespaces, e.g. `codemode.github.search_issues(...)`
+- supports nested MCP-style namespaces, e.g. `mcp.github.search_issues(...)`
 - times out runaway code
 - does not expose Node or host globals such as `process`, `require`, filesystem, environment, network, or subprocess APIs
 - releases QuickJS runtime/context memory cleanly after execution

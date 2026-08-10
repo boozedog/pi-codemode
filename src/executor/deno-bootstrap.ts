@@ -135,6 +135,24 @@ function setupGlobals(userStrings: Record<string, string>): void {
 
   (globalThis as any).read = (args?: unknown) => callTool("read", args);
 
+  (globalThis as any).mcp = new Proxy(
+    {},
+    {
+      get(_, namespace: string) {
+        if (namespace === "then") return undefined;
+        return new Proxy(
+          {},
+          {
+            get(_, tool: string) {
+              if (tool === "then") return undefined;
+              return (args?: unknown) => callTool(`mcp.${namespace}.${tool}`, args);
+            },
+          },
+        );
+      },
+    },
+  );
+
   (globalThis as any).cli = new Proxy(
     {},
     {

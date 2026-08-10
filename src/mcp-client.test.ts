@@ -120,7 +120,7 @@ describe("mcp client", () => {
     const client = createMcpClient();
 
     await expect(client.call("github", "search_issues", {})).rejects.toThrow(
-      'Failed to connect MCP server "github-mcp" (codemode.github): should not connect in this test',
+      'Failed to connect MCP server "github-mcp" (mcp.github): should not connect in this test',
     );
   });
 
@@ -129,7 +129,7 @@ describe("mcp client", () => {
     const client = createMcpClient();
 
     await expect(client.call("github", "serch_issues", {})).rejects.toThrow(
-      "Unknown MCP tool: codemode.github.serch_issues(). Available: search_issues, create_issue",
+      "Unknown MCP tool: mcp.github.serch_issues(). Available: search_issues, create_issue",
     );
   });
 
@@ -139,7 +139,7 @@ describe("mcp client", () => {
     const client = createMcpClient();
 
     await expect(client.call("github", "search_issues", {})).rejects.toThrow(
-      'MCP server "github-mcp" (codemode.github) requires authentication. Configure/authenticate it in pi-mcp-adapter first.',
+      'MCP server "github-mcp" (mcp.github) requires authentication. Configure/authenticate it in pi-mcp-adapter first.',
     );
   });
 
@@ -171,7 +171,7 @@ describe("mcp client", () => {
     const client = createMcpClient();
 
     await expect(client.call("github", "serch_issues", {})).rejects.toThrow(
-      "Unknown MCP tool: codemode.github.serch_issues(). Available: search_issues, create_issue",
+      "Unknown MCP tool: mcp.github.serch_issues(). Available: search_issues, create_issue",
     );
   });
 

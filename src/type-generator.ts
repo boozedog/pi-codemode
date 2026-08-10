@@ -153,7 +153,7 @@ const builtinToolDescriptors: Record<string, { description?: string; inputSchema
     },
   },
   list_mcp_servers: {
-    description: "List configured MCP server namespaces available under codemode.*.",
+    description: "List configured MCP server namespaces available under mcp.*.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -324,7 +324,14 @@ export function generateBuiltinTypeDefs(config?: { cli?: CliConfig }): string {
 declare function read(args: { path: string; offset?: number; limit?: number }): Promise<string>;
 /** File mutation is intentionally not available inside codemode guest code. Use the top-level visible patch editing tool instead; patch results render as diffs in chat. */
 
+/**
+ * Codemode built-ins and MCP server tools.
+ * @deprecated Use \`mcp.<namespace>.<tool>()\` for MCP tools.
+ */
 declare const codemode: CodemodeTools & McpServerNamespaces;
+
+/** MCP server tools discovered for this session. */
+declare const mcp: McpServerNamespaces;
 
 interface McpServerNamespaces {}
 
@@ -364,6 +371,7 @@ interface McpServerNamespaces {}
   const parts: string[] = [];
 
   // Generate the McpServerNamespaces interface
+  parts.push(`/** MCP server tools discovered for this session. */`);
   parts.push(`interface McpServerNamespaces {`);
   for (const server of servers) {
     parts.push(`  /** MCP server: ${server.serverName} (${server.tools.length} tools) */`);
@@ -429,7 +437,7 @@ export function generateMcpSummaryForPrompt(servers: McpServerInfo[]): string {
   const lines: string[] = [];
   lines.push(`### MCP Servers`);
   lines.push(``);
-  lines.push(`The following MCP servers are available as typed namespaces on \`codemode\`.`);
+  lines.push(`The following MCP servers are available as typed namespaces on \`mcp\`.`);
   lines.push(
     `Use \`codemode.describe_tools({ namespace: "..." })\` to browse tools and see their parameters.`,
   );
@@ -440,11 +448,11 @@ export function generateMcpSummaryForPrompt(servers: McpServerInfo[]): string {
     const count = server.tools.length;
     if (count === 0) {
       lines.push(
-        `- **codemode.${sanitizeIdentifier(server.namespace)}** — ${server.serverName} (connect on first call)`,
+        `- **mcp.${sanitizeIdentifier(server.namespace)}** — ${server.serverName} (connect on first call)`,
       );
     } else {
       lines.push(
-        `- **codemode.${sanitizeIdentifier(server.namespace)}** — ${server.serverName} (${count} tools)`,
+        `- **mcp.${sanitizeIdentifier(server.namespace)}** — ${server.serverName} (${count} tools)`,
       );
     }
   }
@@ -481,7 +489,7 @@ export function generateToolSignature(
       .map((line) => line.trim())
       .find((line) => line.includes("(args")) || `${sanitizeToolName(toolName)}(args: any)`;
 
-  lines.push(`codemode.${namespace}.${sig}: Promise<string>`);
+  lines.push(`mcp.${namespace}.${sig}: Promise<string>`);
   return lines.join("\n");
 }
 

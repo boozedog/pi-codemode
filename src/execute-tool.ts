@@ -76,7 +76,7 @@ Available tools in code:
 - File mutation helpers (write, replace_in_file, apply_patch) are intentionally unavailable inside guest code; use the top-level visible patch editing tool instead (patch results render as diffs in chat).
 - codemode.search_tools({ query }) → discover available tools
 - codemode.describe_tools({ namespace, tool? }) → browse MCP tools
-- codemode.<namespace>.<tool>(args) → call MCP tools (e.g., codemode.github.search_issues())
+- mcp.<namespace>.<tool>(args) → call MCP tools (e.g., mcp.github.search_issues())
 - codemode.progress(msg) → stream progress to UI
 - print(...) → optional diagnostic/progress output; avoid printing values you also return
 - π.keyName → string constants from the 'strings' parameter
@@ -87,7 +87,7 @@ Return the final value you want in the result. Prefer return over print for fina
       {
         code: stringSchema({
           description:
-            "TypeScript code body. Has access to read(), codemode.search_tools(), codemode.describe_tools(), codemode.<namespace>.<tool>() for MCP, print(), and π.keyName from strings parameter. File mutation helpers are not available inside guest code; use top-level patch editing instead.",
+            "TypeScript code body. Has access to read(), codemode.search_tools(), codemode.describe_tools(), mcp.<namespace>.<tool>() for MCP, print(), and π.keyName from strings parameter. File mutation helpers are not available inside guest code; use top-level patch editing instead.",
         }),
         strings: recordSchema(stringSchema(), stringSchema(), {
           description:
@@ -421,6 +421,14 @@ async function executeCode(
         name: "codemode",
         fns: bindings as Record<string, (...args: unknown[]) => Promise<unknown>>,
       },
+      ...(bindings.mcp
+        ? [
+            {
+              name: "mcp",
+              fns: bindings.mcp as Record<string, (...args: unknown[]) => Promise<unknown>>,
+            },
+          ]
+        : []),
     ];
 
     const result = await executor.execute(code, providers, {

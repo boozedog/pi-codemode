@@ -67,7 +67,7 @@ describe("tool search", () => {
       ],
     );
 
-    expect(searchTools("owner")).toContain("[github] codemode.github.search_issues()");
+    expect(searchTools("owner")).toContain("[github] mcp.github.search_issues()");
     expect(searchTools("repo")).toContain("Find matching issues");
   });
 
@@ -107,7 +107,7 @@ describe("tool search", () => {
       ],
     );
 
-    expect(searchTools("githb")).toContain("codemode.github.search_issues()");
+    expect(searchTools("githb")).toContain("mcp.github.search_issues()");
   });
 
   test("surfaces editing guidance for replace, patch, write, and diff queries", () => {

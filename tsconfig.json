@@ -19,7 +19,15 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "typeRoots": ["./src/types", "./node_modules/@types"]
+    "typeRoots": ["./src/types", "./node_modules/@types"],
+    "paths": {
+      "pi-mcp-adapter/types.js": ["./src/adapter-shims/types.d.ts"],
+      "pi-mcp-adapter/server-manager.js": ["./src/adapter-shims/server-manager.d.ts"],
+      "pi-mcp-adapter/config.js": ["./src/adapter-shims/config.d.ts"],
+      "pi-mcp-adapter/metadata-cache.js": ["./src/adapter-shims/metadata-cache.d.ts"],
+      "pi-mcp-adapter/tool-registrar.js": ["./src/adapter-shims/tool-registrar.d.ts"]
+    },
+    "types": ["node"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
