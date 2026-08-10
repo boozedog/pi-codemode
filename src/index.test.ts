@@ -111,7 +111,6 @@ describe("codemodeExtension", () => {
     expect(pi.getActiveTools).toHaveBeenCalled();
     expect(pi.setActiveTools).toHaveBeenCalledWith([
       "read",
-      "write",
       "replace_in_file",
       "apply_patch",
       "codemode",
@@ -176,13 +175,13 @@ describe("codemodeExtension", () => {
 
     expect(pi.setActiveTools).toHaveBeenCalledWith([
       "read",
-      "write",
       "replace_in_file",
       "apply_patch",
       "codemode",
     ]);
     expect(prompt.systemPrompt).toContain("## Code Mode (on)");
     expect(prompt.systemPrompt).toContain("native bash tool is not exposed");
+    expect(prompt.systemPrompt).toContain("Writes are restricted to the project root");
     expect(prompt.systemPrompt).toContain(
       "If the result you need is primarily stdout/stderr from one or more CLI calls, return a plain string",
     );
@@ -213,11 +212,33 @@ describe("codemodeExtension", () => {
     expect(pi.registerTool).toHaveBeenCalledWith(expect.objectContaining({ name: "apply_patch" }));
     expect(pi.setActiveTools).toHaveBeenCalledWith([
       "read",
-      "write",
       "replace_in_file",
       "apply_patch",
       "codemode",
     ]);
+  });
+
+  test("on mode is write-locked — native write/edit/bash are not active", async () => {
+    loadConfig.mockReturnValue({
+      mode: "on",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    });
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, ctx } = createPiMock();
+    // Pi's base set includes all native write-capable tools.
+    pi.getActiveTools.mockReturnValue(["read", "write", "edit", "bash"]);
+    codemodeExtension(pi as never);
+
+    await handlers.get("session_start")?.({}, ctx);
+
+    const active = pi.setActiveTools.mock.calls.at(-1)?.[0] as string[];
+    expect(active).toContain("read");
+    expect(active).toContain("replace_in_file");
+    expect(active).toContain("apply_patch");
+    expect(active).toContain("codemode");
+    expect(active).not.toContain("write");
+    expect(active).not.toContain("edit");
+    expect(active).not.toContain("bash");
   });
 
   test("file edit tools render visible diffs in calls and results", async () => {
@@ -392,7 +413,6 @@ describe("codemodeExtension", () => {
 
     expect(pi.setActiveTools).toHaveBeenCalledWith([
       "read",
-      "write",
       "replace_in_file",
       "apply_patch",
       "codemode",
@@ -428,7 +448,6 @@ describe("codemodeExtension", () => {
 
     expect(pi.setActiveTools).toHaveBeenNthCalledWith(1, [
       "read",
-      "write",
       "replace_in_file",
       "apply_patch",
       "codemode",
@@ -436,7 +455,6 @@ describe("codemodeExtension", () => {
     ]);
     expect(pi.setActiveTools).toHaveBeenNthCalledWith(2, [
       "read",
-      "write",
       "replace_in_file",
       "apply_patch",
       "codemode",
@@ -448,7 +466,6 @@ describe("codemodeExtension", () => {
     expect(pi.setActiveTools.mock.calls[2]?.[0]).not.toContain("codemode");
     expect(pi.setActiveTools).toHaveBeenNthCalledWith(4, [
       "read",
-      "write",
       "replace_in_file",
       "apply_patch",
       "codemode",
@@ -533,7 +550,6 @@ describe("codemodeExtension", () => {
     expect(ctx.ui.notify).not.toHaveBeenCalledWith("Usage: /codemode [on|yolo|off]", "warning");
     expect(pi.setActiveTools).toHaveBeenCalledWith([
       "read",
-      "write",
       "replace_in_file",
       "apply_patch",
       "codemode",
