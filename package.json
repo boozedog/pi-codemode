@@ -1,6 +1,6 @@
 {
   "name": "@boozedog/pi-codemode",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "Pi Codemode plugin - TypeScript code execution with sandboxed tools, typed host CLI, and MCP integration",
   "keywords": [
     "codemode",
