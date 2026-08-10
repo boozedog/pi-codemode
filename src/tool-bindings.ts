@@ -335,7 +335,7 @@ function describeBuiltinTools(toolName?: string): string {
     },
     apply_patch: {
       description:
-        "Top-level file tool. Apply a text-only unified diff safely inside the project root. Useful for patch/diff-oriented edits; returns clear hunk failure diagnostics.",
+        "Top-level file tool. Apply a text-only unified diff (project-root scoped in on mode; unscoped absolute paths in yolo). Useful for patch/diff-oriented edits; returns clear hunk failure diagnostics.",
       params: "{ patch: string }",
     },
     search_tools: {

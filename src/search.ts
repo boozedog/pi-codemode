@@ -58,7 +58,7 @@ const PI_TOOL_SEARCH_DESCRIPTIONS: Record<string, string> = {
   replace_in_file:
     "Exact search/replace file tool. Use for precise localized changes and replacements. oldText must match exactly once, replacements must be unique and non-overlapping, and nearby replacements should be merged. Use apply_patch for unified diffs.",
   apply_patch:
-    "Apply a text-only unified diff patch safely inside the project root. Useful for patch/diff-oriented edits and returns clear hunk failure diagnostics.",
+    "Apply a text-only unified diff patch. Paths are project-root scoped in on mode; yolo allows absolute paths anywhere. Useful for patch/diff-oriented edits and returns clear hunk failure diagnostics.",
 };
 
 let index: MiniSearch<SearchDoc> | null = null;

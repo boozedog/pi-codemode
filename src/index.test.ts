@@ -1,5 +1,8 @@
 /* eslint-disable vitest/require-mock-type-parameters */
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 type TestConfig = {
   mode: "off" | "on" | "yolo";
@@ -536,6 +539,93 @@ describe("codemodeExtension", () => {
       "codemode",
       "bash",
     ]);
+  });
+
+  test("yolo mode patch tools execute on absolute paths outside project root", async () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), "codemode-index-yolo-"));
+    try {
+      const outsidePath = join(outsideDir, "scratch.txt");
+      writeFileSync(outsidePath, "hello outside");
+
+      const { default: codemodeExtension } = await import("./index.js");
+      const { pi, handlers, ctx } = createPiMock();
+      codemodeExtension(pi as never);
+      await handlers.get("session_start")?.({}, ctx);
+
+      const tools = pi.registerTool.mock.calls.map((call) => call[0]);
+      const replaceInFile = tools.find((tool) => tool.name === "replace_in_file");
+      const applyPatch = tools.find((tool) => tool.name === "apply_patch");
+      expect(replaceInFile).toBeDefined();
+      expect(applyPatch).toBeDefined();
+
+      const replaceResult = await replaceInFile.execute("call-1", {
+        path: outsidePath,
+        edits: [{ oldText: "outside", newText: "yolo" }],
+      });
+      expect(replaceResult.content[0].text).toContain("Replaced 1 occurrence");
+      expect(readFileSync(outsidePath, "utf-8")).toBe("hello yolo");
+
+      writeFileSync(outsidePath, "line1\nline2\nline3\n");
+      const patchResult = await applyPatch.execute("call-2", {
+        patch: `--- a/${outsidePath}
++++ b/${outsidePath}
+@@ -1,3 +1,3 @@
+ line1
+-line2
++changed
+ line3
+`,
+      });
+      expect(patchResult.content[0].text).toContain("Applied patch to 1 file");
+      expect(readFileSync(outsidePath, "utf-8")).toBe("line1\nchanged\nline3\n");
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  test("on mode patch tools reject absolute paths outside project root", async () => {
+    loadConfig.mockReturnValue({
+      mode: "on",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    });
+    const outsideDir = mkdtempSync(join(tmpdir(), "codemode-index-on-"));
+    try {
+      const outsidePath = join(outsideDir, "scratch.txt");
+      writeFileSync(outsidePath, "hello outside");
+
+      const { default: codemodeExtension } = await import("./index.js");
+      const { pi, handlers, ctx } = createPiMock();
+      codemodeExtension(pi as never);
+      await handlers.get("session_start")?.({}, ctx);
+
+      const tools = pi.registerTool.mock.calls.map((call) => call[0]);
+      const replaceInFile = tools.find((tool) => tool.name === "replace_in_file");
+      const applyPatch = tools.find((tool) => tool.name === "apply_patch");
+      expect(replaceInFile).toBeDefined();
+      expect(applyPatch).toBeDefined();
+
+      await expect(
+        replaceInFile.execute("call-1", {
+          path: outsidePath,
+          edits: [{ oldText: "outside", newText: "blocked" }],
+        }),
+      ).rejects.toThrow("Path outside project");
+
+      await expect(
+        applyPatch.execute("call-2", {
+          patch: `--- a/${outsidePath}
++++ b/${outsidePath}
+@@ -1 +1 @@
+-hello outside
++blocked
+`,
+        }),
+      ).rejects.toThrow("Path outside project");
+
+      expect(readFileSync(outsidePath, "utf-8")).toBe("hello outside");
+    } finally {
+      rmSync(outsideDir, { recursive: true, force: true });
+    }
   });
 
   test("session_shutdown closes MCP client", async () => {

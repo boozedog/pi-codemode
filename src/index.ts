@@ -20,7 +20,7 @@ import { createExecuteTool } from "./execute-tool.js";
 import { createMcpClient, type McpClient } from "./mcp-client.js";
 import { createToolBindings } from "./tool-bindings.js";
 import { loadConfig, type CodemodeConfig, type CodemodeMode } from "./config.js";
-import { createFileTools } from "./file-tools.js";
+import { createFileTools, type FileScope } from "./file-tools.js";
 import { generateNativeEditGuidance, generateSystemPromptAddition } from "./system-prompt.js";
 
 export default function codemodeExtension(pi: ExtensionAPI) {
@@ -110,9 +110,12 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     });
   }
 
+  // --- Shared file scope (mutable unrestricted flag flipped in applyMode) ---
+  const fileScope: FileScope = { root: process.cwd(), unrestricted: false };
+
   // --- Register codemode tools ---
 
-  for (const tool of createTopLevelFileTools(process.cwd())) {
+  for (const tool of createTopLevelFileTools(fileScope)) {
     pi.registerTool(tool);
   }
 
@@ -189,6 +192,9 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Helpers ---
 
   function applyMode(mode: CodemodeMode, ctx: ExtensionContext) {
+    // Patch tools share one registration; flip path scope with the mode.
+    fileScope.unrestricted = mode === "yolo";
+
     if (mode === "off") {
       deactivateCodemode();
       ctx.ui.notify("Codemode off — normal Pi tools active", "info");
@@ -285,8 +291,8 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   }
 }
 
-function createTopLevelFileTools(projectRoot: string): ToolDefinition[] {
-  const fileTools = createFileTools({ projectRoot });
+function createTopLevelFileTools(scope: FileScope): ToolDefinition[] {
+  const fileTools = createFileTools({ scope });
   const textResult = (text: string) => ({ content: [{ type: "text", text }] });
 
   return [
@@ -294,7 +300,7 @@ function createTopLevelFileTools(projectRoot: string): ToolDefinition[] {
       name: "replace_in_file",
       label: "Replace in File",
       description:
-        "Replace text in a file using exact oldText/newText edits. Every oldText must match exactly once and edits must not overlap.",
+        "Replace text in a file using exact oldText/newText edits. Every oldText must match exactly once and edits must not overlap. Paths are scoped to the project root in on mode; in yolo mode absolute paths may reach anywhere on the host.",
       parameters: objectSchema({
         path: stringSchema(),
         edits: arraySchema(
@@ -314,7 +320,8 @@ function createTopLevelFileTools(projectRoot: string): ToolDefinition[] {
     {
       name: "apply_patch",
       label: "Apply Patch",
-      description: "Apply a text-only unified diff safely inside the project root.",
+      description:
+        "Apply a text-only unified diff. Paths are scoped to the project root in on mode; in yolo mode absolute paths may reach anywhere on the host (matching native bash reach).",
       parameters: objectSchema({
         patch: stringSchema(),
       }),
