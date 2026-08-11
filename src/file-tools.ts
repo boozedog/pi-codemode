@@ -355,6 +355,13 @@ function parseBeginPatch(patch: string): ParsedFilePatch[] {
   let currentHunk: ParsedHunk | undefined;
 
   for (const line of lines) {
+    if (line.startsWith("*** Add File: ")) {
+      current = { path: line.slice("*** Add File: ".length).trim(), hunks: [] };
+      currentHunk = { oldStart: 0, oldCount: 0, lines: [] };
+      current.hunks.push(currentHunk);
+      files.push(current);
+      continue;
+    }
     if (line.startsWith("*** Update File: ")) {
       current = { path: line.slice("*** Update File: ".length).trim(), hunks: [] };
       files.push(current);

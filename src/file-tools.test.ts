@@ -204,6 +204,21 @@ describe("file tools", () => {
       expect(readFileSync(join(projectDir, "test.txt"), "utf-8")).toBe("line1\nchanged\nline3\n");
     });
 
+    it("accepts Begin Patch add file format", () => {
+      const result = tools.apply_patch({
+        patch: `*** Begin Patch
+*** Add File: nested/example.ts
++export const example = true;
+*** End Patch
+`,
+      });
+
+      expect(result).toContain("Applied patch to 1 file");
+      expect(readFileSync(join(projectDir, "nested/example.ts"), "utf-8")).toBe(
+        "export const example = true;\n",
+      );
+    });
+
     it("returns a visible diff for replace_in_file results", () => {
       writeFileSync(join(projectDir, "test.txt"), "hello world\n");
 
