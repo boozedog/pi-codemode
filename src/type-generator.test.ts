@@ -45,9 +45,17 @@ describe("built-in file tool type definitions", () => {
     expect(typeDefs).toContain("message: string;");
   });
 
-  test("documents patch-only mutation outside guest code", () => {
+  test("documents the read offset contract truthfully", () => {
     const typeDefs = generateBuiltinTypeDefs();
 
+    expect(typeDefs).toContain("offset?: number");
+    expect(typeDefs).toMatch(/zero-based line offset/i);
+    expect(typeDefs).not.toContain("Each line is prefixed with line number and hash");
+    expect(typeDefs).not.toContain("1-indexed");
+  });
+
+  test("documents patch-only mutation outside guest code", () => {
+    const typeDefs = generateBuiltinTypeDefs();
     expect(typeDefs).toContain("declare function read");
     expect(typeDefs).not.toContain("declare function write");
     expect(typeDefs).not.toContain("declare function replace_in_file");

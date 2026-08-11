@@ -16,7 +16,7 @@ import { getCliOperationDefinition } from "./cli-operations.js";
 const fileToolDescriptors: Record<string, { description?: string; inputSchema: JSONSchema7 }> = {
   read: {
     description:
-      "Read a file and return its content as a string. Each line is prefixed with line number and hash for reference. Default limit: 2000 lines or 50KB.",
+      "Read a file and return its raw content as a string. offset is a zero-based line offset. Default limit: 2000 lines or 50KB.",
     inputSchema: {
       type: "object",
       properties: {
@@ -26,7 +26,7 @@ const fileToolDescriptors: Record<string, { description?: string; inputSchema: J
         },
         offset: {
           type: "number",
-          description: "Line number to start from (1-indexed)",
+          description: "Zero-based line offset to start from",
         },
         limit: {
           type: "number",
@@ -320,7 +320,7 @@ export function generateBuiltinTypeDefs(config?: { cli?: CliConfig }): string {
   return `\
 /** Tool API available inside codemode code blocks. */
 
-/** Read a file. Use offset/limit for large files instead of reading more than needed. */
+/** Read raw file contents. offset is a zero-based line offset; use offset/limit for large files. */
 declare function read(args: { path: string; offset?: number; limit?: number }): Promise<string>;
 /** File mutation is intentionally not available inside codemode guest code. Use the top-level visible patch editing tool instead; patch results render as diffs in chat. */
 

@@ -325,7 +325,7 @@ function describeBuiltinTools(toolName?: string): string {
   const builtins: Record<string, { description: string; params: string }> = {
     read: {
       description:
-        "Top-level file tool. Read file contents before editing; use offset/limit for large files.",
+        "Top-level file tool. Read raw file contents before editing; offset is a zero-based line offset. Use offset/limit for large files.",
       params: "{ path: string; offset?: number; limit?: number }",
     },
     write: {

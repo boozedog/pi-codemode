@@ -112,12 +112,12 @@ export function createFileTools(options: FileToolsOptions) {
         const positions = findAllPositions(content, edit.oldText);
 
         if (positions.length === 0) {
-          throw new Error(`oldText not found: "${edit.oldText}"`);
+          throw new Error(`oldText not found: "${formatDiagnosticText(edit.oldText)}"`);
         }
 
         if (positions.length > 1) {
           throw new Error(
-            `oldText matches ${positions.length} times, expected exactly 1: "${edit.oldText}"`,
+            `oldText matches ${positions.length} times, expected exactly 1: "${formatDiagnosticText(edit.oldText)}"`,
           );
         }
 
@@ -333,6 +333,12 @@ function applyUnifiedPatch(patch: string, scope: FileScope): string {
     const fullPath = validateAndResolvePath(file.path, scope);
     const original = existsSync(fullPath) ? readFileSync(fullPath, "utf-8") : "";
     const updated = applyFilePatch(original, file);
+    if (
+      updated === original &&
+      file.hunks.some((hunk) => hunk.lines.some((line) => /^[+-]/.test(line)))
+    ) {
+      throw new Error(`Patch for ${file.path} contained changes but left the file unchanged`);
+    }
     const dir = dirname(fullPath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     writeFileSync(fullPath, updated, "utf-8");
@@ -383,6 +389,9 @@ function parseBeginPatch(patch: string): ParsedFilePatch[] {
     }
   }
 
+  if (files.some((file) => file.hunks.length === 0)) {
+    throw new Error("No parseable hunks found in Begin Patch input");
+  }
   return files;
 }
 
@@ -407,14 +416,14 @@ function parseUnifiedPatch(patch: string): ParsedFilePatch[] {
     i++;
 
     while (i < lines.length && !lines[i].startsWith("--- ")) {
-      const header = lines[i].match(/^@@ -(\d+),(\d+) \+(\d+),(\d+) @@/);
+      const header = lines[i].match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
       if (!header) {
         i++;
         continue;
       }
       const hunk: ParsedHunk = {
         oldStart: Number(header[1]),
-        oldCount: Number(header[2]),
+        oldCount: Number(header[2] ?? 1),
         lines: [],
       };
       i++;
@@ -423,6 +432,9 @@ function parseUnifiedPatch(patch: string): ParsedFilePatch[] {
         i++;
       }
       file.hunks.push(hunk);
+    }
+    if (file.hunks.length === 0) {
+      throw new Error(`No parseable hunks found for ${file.path}`);
     }
     files.push(file);
   }
@@ -443,10 +455,7 @@ function applyFilePatch(original: string, patch: ParsedFilePatch): string {
   let cursor = 0;
 
   for (const hunk of patch.hunks) {
-    const start =
-      hunk.oldStart === 0
-        ? findFuzzyHunkStart(originalLines, hunk.lines, cursor)
-        : hunk.oldStart - 1;
+    const start = findHunkStart(originalLines, hunk, cursor, patch.path, original);
     if (start < cursor)
       throw new Error(
         `Hunk failed for ${patch.path} at -${hunk.oldStart},${hunk.oldCount}: overlaps previous hunk`,
@@ -459,8 +468,9 @@ function applyFilePatch(original: string, patch: ParsedFilePatch): string {
       const text = line.slice(1);
       if (marker === " " || marker === "-") {
         if (originalLines[pos] !== text) {
+          const nearby = nearbyLines(originalLines, pos);
           throw new Error(
-            `Hunk failed for ${patch.path} at -${hunk.oldStart},${hunk.oldCount}: expected ${JSON.stringify(text)} but found ${JSON.stringify(originalLines[pos] ?? "<EOF>")}`,
+            `Hunk failed for ${patch.path} at -${hunk.oldStart},${hunk.oldCount}: expected ${JSON.stringify(text)} but found ${JSON.stringify(originalLines[pos] ?? "<EOF>")}; nearby ${nearby}`,
           );
         }
         if (marker === " ") result.push(text);
@@ -483,19 +493,70 @@ function applyFilePatch(original: string, patch: ParsedFilePatch): string {
     : next;
 }
 
-function findFuzzyHunkStart(originalLines: string[], hunkLines: string[], cursor: number): number {
-  const expected = hunkLines
+function findHunkStart(
+  originalLines: string[],
+  hunk: ParsedHunk,
+  cursor: number,
+  path: string,
+  original: string,
+): number {
+  const expected = hunk.lines
     .filter((line) => line.startsWith(" ") || line.startsWith("-"))
     .map((line) => line.slice(1));
-  if (expected.length === 0) return cursor;
 
-  for (let start = cursor; start <= originalLines.length - expected.length; start++) {
-    if (expected.every((line, offset) => originalLines[start + offset] === line)) {
-      return start;
-    }
+  if (original.includes("\r\n") && expected.some((line) => !line.includes("\r"))) {
+    throw new Error(`Hunk failed for ${path}: file uses CRLF line endings; patch uses LF`);
   }
 
-  throw new Error(`Hunk failed: could not find context ${JSON.stringify(expected.join("\\n"))}`);
+  const exactStart = hunk.oldStart === 0 ? -1 : hunk.oldStart - 1;
+  if (exactStart >= cursor && matchesExpected(originalLines, expected, exactStart)) {
+    return exactStart;
+  }
+
+  if (expected.length === 0) return Math.max(cursor, exactStart);
+
+  const matches = findContextMatches(originalLines, expected, cursor);
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) {
+    throw new Error(
+      `Hunk failed for ${path} at -${hunk.oldStart},${hunk.oldCount}: ambiguous context matches at lines ${matches.map((match) => match + 1).join(", ")}`,
+    );
+  }
+
+  throw new Error(
+    `Hunk failed for ${path} at -${hunk.oldStart},${hunk.oldCount}: context not found; nearby ${nearbyLines(originalLines, Math.max(cursor, exactStart))}`,
+  );
+}
+
+function matchesExpected(lines: string[], expected: string[], start: number): boolean {
+  return (
+    start >= 0 &&
+    start + expected.length <= lines.length &&
+    expected.every((line, offset) => lines[start + offset] === line)
+  );
+}
+
+function findContextMatches(lines: string[], expected: string[], cursor: number): number[] {
+  const matches: number[] = [];
+  for (let start = cursor; start <= lines.length - expected.length; start++) {
+    if (matchesExpected(lines, expected, start)) matches.push(start);
+  }
+  return matches;
+}
+
+function nearbyLines(lines: string[], index: number): string {
+  if (lines.length === 0) return "<empty file>";
+  const start = Math.max(0, Math.min(index, lines.length - 1) - 2);
+  const end = Math.min(lines.length, start + 5);
+  return lines
+    .slice(start, end)
+    .map((line, offset) => `${start + offset + 1}:${JSON.stringify(line)}`)
+    .join(" | ");
+}
+
+function formatDiagnosticText(text: string): string {
+  const maxLength = 200;
+  return text.length > maxLength ? `${text.slice(0, maxLength)}... (length ${text.length})` : text;
 }
 
 function createUnifiedDiff(path: string, original: string, updated: string): string {
@@ -532,8 +593,8 @@ function createUnifiedDiff(path: string, original: string, updated: string): str
   const addedEnd = updatedLines.length - suffix;
 
   const diffLines = [
-    `--- a/${path}`,
-    `+++ b/${path}`,
+    `--- a/${path.replace(/^\/+/, "")}`,
+    `+++ b/${path.replace(/^\/+/, "")}`,
     `@@ -${oldStart + 1},${oldEnd - oldStart} +${newStart + 1},${newEnd - newStart} @@`,
   ];
 

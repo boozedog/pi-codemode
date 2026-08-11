@@ -152,6 +152,122 @@ describe("file tools", () => {
       expect(readFileSync(join(projectDir, "test.txt"), "utf-8")).toBe("line1\nchanged\nline3\n");
     });
 
+    it("applies abbreviated hunk headers", () => {
+      writeFileSync(join(projectDir, "test.txt"), "line1\nline2\nline3\n");
+
+      tools.apply_patch({
+        patch: `--- a/test.txt
++++ b/test.txt
+@@ -2 +2 @@
+-line2
++changed
+`,
+      });
+
+      expect(readFileSync(join(projectDir, "test.txt"), "utf-8")).toBe("line1\nchanged\nline3\n");
+    });
+
+    it("applies a one-line abbreviated hunk at the start of a file", () => {
+      writeFileSync(join(projectDir, "test.txt"), "line1\nline2\n");
+
+      tools.apply_patch({
+        patch: `--- a/test.txt
++++ b/test.txt
+@@ -1 +1 @@
+-line1
++changed
+`,
+      });
+
+      expect(readFileSync(join(projectDir, "test.txt"), "utf-8")).toBe("changed\nline2\n");
+    });
+
+    it("rejects patches whose hunk headers cannot be parsed", () => {
+      writeFileSync(join(projectDir, "test.txt"), "line1\nline2\n");
+
+      expect(() =>
+        tools.apply_patch({
+          patch: `--- a/test.txt
++++ b/test.txt
+@@ not a hunk @@
+-line2
++changed
+`,
+        }),
+      ).toThrow(/no parseable hunks|no hunks/i);
+      expect(readFileSync(join(projectDir, "test.txt"), "utf-8")).toBe("line1\nline2\n");
+    });
+
+    it("rejects a parsed change hunk that leaves the file unchanged", () => {
+      writeFileSync(join(projectDir, "test.txt"), "line1\nline2\n");
+
+      expect(() =>
+        tools.apply_patch({
+          patch: `--- a/test.txt
++++ b/test.txt
+@@ -2 +2 @@
+-line2
++line2
+`,
+        }),
+      ).toThrow(/left the file unchanged|unchanged/i);
+    });
+
+    it("falls back to unique context when hunk line numbers are stale", () => {
+      writeFileSync(join(projectDir, "test.txt"), "header\nkeep\nold\ntail\n");
+
+      tools.apply_patch({
+        patch: `--- a/test.txt
++++ b/test.txt
+@@ -99,3 +99,3 @@
+ keep
+-old
++new
+ tail
+`,
+      });
+
+      expect(readFileSync(join(projectDir, "test.txt"), "utf-8")).toBe("header\nkeep\nnew\ntail\n");
+    });
+
+    it("rejects ambiguous context instead of choosing a match", () => {
+      writeFileSync(join(projectDir, "test.txt"), "before\nold\nafter\nold\nafter\n");
+
+      expect(() =>
+        tools.apply_patch({
+          patch: `--- a/test.txt
++++ b/test.txt
+@@ -99,2 +99,2 @@
+-old
++new
+ after
+`,
+        }),
+      ).toThrow(/multiple|ambiguous/i);
+    });
+
+    it("applies abbreviated hunks across multiple files", () => {
+      writeFileSync(join(projectDir, "one.txt"), "one\nold\n");
+      writeFileSync(join(projectDir, "two.txt"), "two\nold\n");
+
+      tools.apply_patch({
+        patch: `--- a/one.txt
++++ b/one.txt
+@@ -2 +2 @@
+-old
++first
+--- a/two.txt
++++ b/two.txt
+@@ -2 +2 @@
+-old
++second
+`,
+      });
+
+      expect(readFileSync(join(projectDir, "one.txt"), "utf-8")).toBe("one\nfirst\n");
+      expect(readFileSync(join(projectDir, "two.txt"), "utf-8")).toBe("two\nsecond\n");
+    });
+
     it("reports clear hunk failure diagnostics", () => {
       writeFileSync(join(projectDir, "test.txt"), "line1\nline2\nline3\n");
 
@@ -166,7 +282,23 @@ describe("file tools", () => {
  line3
 `,
         }),
-      ).toThrow(/Hunk failed for test\.txt at -1,3/);
+      ).toThrow(/Hunk failed for test\.txt at -1,3.*nearby/s);
+    });
+
+    it("reports CRLF mismatch explicitly", () => {
+      writeFileSync(join(projectDir, "test.txt"), "line1\r\nline2\r\n");
+
+      expect(() =>
+        tools.apply_patch({
+          patch: `--- a/test.txt
++++ b/test.txt
+@@ -1,2 +1,2 @@
+ line1
+-line2
++changed
+`,
+        }),
+      ).toThrow(/CRLF|line ending|EOL/i);
     });
 
     it("rejects path traversal in patch file paths", () => {
@@ -234,6 +366,46 @@ describe("file tools", () => {
       expect(result).toContain("+hello universe");
     });
 
+    it("does not double-prefix absolute paths in result diffs", () => {
+      const outsideDir = mkdtempSync(join(tmpdir(), "codemode-abs-diff-"));
+      try {
+        const absolutePath = join(outsideDir, "test.txt");
+        writeFileSync(absolutePath, "old\n");
+        const result = createFileTools({
+          scope: { root: projectDir, unrestricted: true },
+        }).replace_in_file({
+          path: absolutePath,
+          edits: [{ oldText: "old", newText: "new" }],
+        });
+        expect(result).not.toContain("a//");
+        expect(result).not.toContain("b//");
+      } finally {
+        rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    it("does not double-prefix absolute paths in apply_patch diffs", () => {
+      const outsideDir = mkdtempSync(join(tmpdir(), "codemode-abs-patch-"));
+      try {
+        const absolutePath = join(outsideDir, "test.txt");
+        writeFileSync(absolutePath, "old\n");
+        const result = createFileTools({
+          scope: { root: projectDir, unrestricted: true },
+        }).apply_patch({
+          patch: `--- a/${absolutePath}
++++ b/${absolutePath}
+@@ -1 +1 @@
+-old
++new
+`,
+        });
+        expect(result).not.toContain("a//");
+        expect(result).not.toContain("b//");
+      } finally {
+        rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+
     it("keeps visible diffs focused around changed lines", () => {
       writeFileSync(join(projectDir, "test.txt"), "keep1\nkeep2\nold\nkeep3\nkeep4\nkeep5\n");
 
@@ -284,6 +456,18 @@ describe("file tools", () => {
           edits: [{ oldText: "nonexistent", newText: "replacement" }],
         }),
       ).toThrow('oldText not found: "nonexistent"');
+    });
+
+    it("truncates very long missing oldText diagnostics", () => {
+      writeFileSync(join(projectDir, "test.txt"), "hello world");
+      const oldText = "x".repeat(500);
+
+      expect(() =>
+        tools.replace_in_file({
+          path: "test.txt",
+          edits: [{ oldText, newText: "replacement" }],
+        }),
+      ).toThrow(/oldText not found.*\.\.\./);
     });
 
     it("throws error when oldText matches multiple times", () => {
