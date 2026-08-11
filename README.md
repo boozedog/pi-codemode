@@ -354,6 +354,10 @@ pi install /absolute/path/to/pi-codemode
 
 The package manifest points Pi at `./dist/index.js`. Runtime packages are normal `dependencies`; Pi-provided APIs are declared as `peerDependencies`. Git installs run `npm install`, and the package `prepare` script builds `dist/` after install. npm publishes run `prepack`, which also builds `dist/` before creating the tarball.
 
+### Dependency policy
+
+Host-coupled or deeply integrated dependencies are exact-pinned when a version change can alter runtime loading or integration behavior. Pure JavaScript libraries use caret ranges so compatible fixes can be installed. `pi-mcp-adapter` is intentionally pinned to `2.5.4` because newer releases currently break this package's deep adapter imports; see [#31](https://github.com/boozedog/pi-codemode/issues/31) before changing it. The Pi peer packages are currently constrained to `^0.73.1`, matching the APIs Codemode integrates with and the development `pi-tui` floor. The upstream ecosystem is also transitioning from `@mariozechner/pi-*` packages to `@earendil-works/*`; this package keeps its existing peer names until that migration is verified.
+
 ## Development
 
 ```sh

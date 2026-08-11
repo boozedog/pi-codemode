@@ -89,14 +89,18 @@ describe("package metadata", () => {
         typescript: expect.any(String),
       }),
     );
+    expect(pkg.dependencies?.["pi-mcp-adapter"]).toBe("2.5.4");
     expect(pkg.devDependencies).not.toHaveProperty("typescript");
     expect(pkg.peerDependencies).toEqual(
       expect.objectContaining({
-        "@mariozechner/pi-agent-core": "*",
-        "@mariozechner/pi-coding-agent": "*",
-        "@mariozechner/pi-tui": "*",
+        "@mariozechner/pi-agent-core": "^0.73.1",
+        "@mariozechner/pi-coding-agent": "^0.73.1",
+        "@mariozechner/pi-tui": "^0.73.1",
       }),
     );
+    for (const range of Object.values(pkg.peerDependencies ?? {})) {
+      expect(range).not.toBe("*");
+    }
   });
 });
 
@@ -121,6 +125,16 @@ describe("tag-based distribution docs", () => {
     expect(readme).toContain("npm run publish:npm");
     expect(readme).toContain("pi-package");
     expect(readme).toContain("pi install npm:@boozedog/pi-codemode");
+  });
+
+  test("documents the dependency pinning policy", () => {
+    const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
+
+    expect(readme).toContain("Dependency policy");
+    expect(readme).toContain("pi-mcp-adapter");
+    expect(readme).toContain("2.5.4");
+    expect(readme).toContain("#31");
+    expect(readme).toMatch(/host-coupled/i);
   });
 });
 
