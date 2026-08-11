@@ -65,6 +65,21 @@ describe("built-in file tool type definitions", () => {
     );
     expect(typeDefs).toContain("Use the top-level visible patch editing tool instead");
   });
+
+  test("types sendMessage as a top-level tool and inside codemode namespace", () => {
+    const typeDefs = generateBuiltinTypeDefs();
+
+    expect(typeDefs).toContain("declare function sendMessage");
+    expect(typeDefs).toContain("content: string");
+
+    expect(typeCheck(`sendMessage({ content: "hi" });`, typeDefs).errors).toEqual([]);
+    expect(typeCheck(`sendMessage({ content: "hi", display: false });`, typeDefs).errors).toEqual(
+      [],
+    );
+    expect(typeCheck(`await codemode.sendMessage({ content: "hi" });`, typeDefs).errors).toEqual(
+      [],
+    );
+  });
 });
 
 describe("MCP server type definitions", () => {

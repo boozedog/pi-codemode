@@ -6,6 +6,24 @@ declare module "@mariozechner/pi-coding-agent" {
     registerFlag(name: string, options: FlagOptions): void;
     registerCommand(name: string, options: CommandOptions): void;
     registerTool(tool: ToolDefinition): void;
+    registerEntryRenderer(
+      customType: string,
+      renderer: (
+        entry: { data?: unknown },
+        options: { outputPad?: number; expanded?: boolean },
+        theme: { fg: (color: string, text: string) => string },
+      ) => unknown,
+    ): void;
+    appendEntry<T = unknown>(customType: string, data?: T): void;
+    sendMessage(
+      message: {
+        customType: string;
+        content: string | Array<{ text?: string }>;
+        display: boolean;
+        details?: unknown;
+      },
+      options?: unknown,
+    ): void;
     getFlag(name: string): boolean | string | number | undefined;
     getActiveTools(): string[];
     getAllTools(): ToolInfo[];
@@ -58,6 +76,8 @@ declare module "@mariozechner/pi-coding-agent" {
   }
 
   export interface ExtensionContext {
+    mode: "tui" | "rpc" | "json" | "print";
+    cwd: string;
     ui: {
       notify(message: string, type: "info" | "warning" | "error" | "success"): void;
     };

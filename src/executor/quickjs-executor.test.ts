@@ -18,6 +18,25 @@ describe("QuickJsExecutor", () => {
     expect(result.logs).toEqual(["hello quickjs"]);
   });
 
+  test("exposes sendMessage as a top-level host-call global", async () => {
+    const calls: unknown[] = [];
+    const executor = new QuickJsExecutor({ timeout: 5_000 });
+    const result = await executor.execute(`await sendMessage({ content: "hi", display: true });`, [
+      {
+        name: "codemode",
+        fns: {
+          sendMessage: async (args: unknown) => {
+            calls.push(args);
+            return undefined;
+          },
+        },
+      },
+    ]);
+
+    expect(result.error).toBeUndefined();
+    expect(calls).toEqual([{ content: "hi", display: true }]);
+  });
+
   test("exposes read but not mutating file tool host calls", async () => {
     const calls: unknown[] = [];
     const executor = new QuickJsExecutor({ timeout: 5_000 });

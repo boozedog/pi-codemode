@@ -142,6 +142,7 @@ export class QuickJsExecutor implements CodeExecutor {
 					}
 				});
 				globalThis.read = function(args) { return globalThis.__hostCall('read', args ?? {}); };
+				globalThis.sendMessage = function(args) { return globalThis.__hostCall('sendMessage', args ?? {}); };
 				globalThis.mcp = new Proxy({}, {
 					get(_target, prop) {
 						if (prop === 'then') return undefined;
@@ -265,6 +266,7 @@ export class QuickJsExecutor implements CodeExecutor {
       const cleanup = vm.evalCode(`
         globalThis.__hostCall = undefined;
         globalThis.read = undefined;
+        globalThis.sendMessage = undefined;
         globalThis.codemode = undefined;
         globalThis.mcp = undefined;
         globalThis.cli = undefined;

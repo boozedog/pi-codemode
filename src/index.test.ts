@@ -9,21 +9,24 @@ type TestConfig = {
   executor: { type: "quickjs"; timeoutMs: number };
 };
 
-const { loadConfig, createMcpClient, shutdown, warmCache, getServers } = vi.hoisted(() => {
-  const shutdown = vi.fn(async () => {});
-  const warmCache = vi.fn(async () => []);
-  const getServers = vi.fn(() => []);
-  return {
-    loadConfig: vi.fn<() => TestConfig>(() => ({
-      mode: "yolo",
-      executor: { type: "quickjs", timeoutMs: 1234 },
-    })),
-    createMcpClient: vi.fn(() => ({ getServers, warmCache, shutdown })),
-    shutdown,
-    warmCache,
-    getServers,
-  };
-});
+const { loadConfig, createMcpClient, shutdown, warmCache, getServers, executeCode } = vi.hoisted(
+  () => {
+    const shutdown = vi.fn(async () => {});
+    const warmCache = vi.fn(async () => []);
+    const getServers = vi.fn(() => []);
+    return {
+      loadConfig: vi.fn<() => TestConfig>(() => ({
+        mode: "yolo",
+        executor: { type: "quickjs", timeoutMs: 1234 },
+      })),
+      createMcpClient: vi.fn(() => ({ getServers, warmCache, shutdown })),
+      shutdown,
+      warmCache,
+      getServers,
+      executeCode: vi.fn(),
+    };
+  },
+);
 
 vi.mock("./config.js", () => ({ loadConfig }));
 vi.mock("./mcp-client.js", () => ({ createMcpClient }));
@@ -32,6 +35,7 @@ vi.mock("./execute-tool.js", () => ({
     name: "codemode",
     description: "Execute TypeScript against codemode tools",
   })),
+  executeCode,
 }));
 vi.mock("./type-generator.js", () => ({
   generateBuiltinTypeDefs: vi.fn(() => "declare const codemode: {};"),
@@ -48,12 +52,15 @@ function createPiMock() {
   const activeTools: string[][] = [];
   const pi = {
     registerFlag: vi.fn(),
-    getFlag: vi.fn(() => false),
+    getFlag: vi.fn((_name?: string): boolean | string => false),
     registerTool: vi.fn(),
     on: vi.fn((event: string, handler: Handler) => handlers.set(event, handler)),
     registerCommand: vi.fn((name: string, command: { handler: Handler }) =>
       commands.set(name, command),
     ),
+    registerEntryRenderer: vi.fn(),
+    appendEntry: vi.fn(),
+    sendMessage: vi.fn(),
     getActiveTools: vi.fn(() => ["read", "write", "bash"]),
     getAllTools: vi.fn(() => [
       { name: "read", description: "Read files" },
@@ -64,7 +71,7 @@ function createPiMock() {
     ]),
     setActiveTools: vi.fn((tools: string[]) => activeTools.push(tools)),
   };
-  const ctx = { ui: { notify: vi.fn() } };
+  const ctx = { mode: "tui", cwd: process.cwd(), ui: { notify: vi.fn() } };
   return { pi, handlers, commands, activeTools, ctx };
 }
 
@@ -80,6 +87,112 @@ describe("codemodeExtension", () => {
     createMcpClient.mockImplementation(() => ({ getServers, warmCache, shutdown }));
     getServers.mockReturnValue([]);
     warmCache.mockResolvedValue([]);
+    executeCode.mockReset();
+  });
+
+  test("routes default TUI messages to non-context entries and opts into model messages", async () => {
+    const { createSendMessageSink } = await import("./index.js");
+    const pi = { appendEntry: vi.fn(), sendMessage: vi.fn() };
+    const sink = createSendMessageSink(pi, "tui");
+
+    await sink({ content: "human", details: { ok: true } });
+    await sink({ content: "model", toModel: true });
+    await sink({ content: "hidden", display: false });
+
+    expect(pi.appendEntry).toHaveBeenCalledWith("codemode", {
+      content: "human",
+      details: { ok: true },
+    });
+    expect(pi.appendEntry).toHaveBeenCalledTimes(1);
+    expect(pi.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ content: "model" }));
+  });
+
+  test("routes print messages to stderr and never stdout", async () => {
+    const { createSendMessageSink } = await import("./index.js");
+    const pi = { appendEntry: vi.fn(), sendMessage: vi.fn() };
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await createSendMessageSink(pi, "print")({ content: "diagnostic" });
+      expect(stderr).toHaveBeenCalledWith("diagnostic\n");
+      expect(stdout).not.toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+      stdout.mockRestore();
+    }
+  });
+
+  test("keeps print-mode toModel messages on stderr while display false suppresses them", async () => {
+    const { createSendMessageSink } = await import("./index.js");
+    const pi = { appendEntry: vi.fn(), sendMessage: vi.fn() };
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const sink = createSendMessageSink(pi, "print");
+      await sink({ content: "model-visible", toModel: true });
+      await sink({ content: "hidden", display: false, toModel: true });
+      expect(stderr).toHaveBeenCalledWith("model-visible\n");
+      expect(stderr).not.toHaveBeenCalledWith("hidden\n");
+      expect(pi.sendMessage).toHaveBeenCalledTimes(2);
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  test("runs a requested job without entering the agent lifecycle", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+    const entry = join(mkdtempSync(join(tmpdir(), "codemode-run-")), "main.ts");
+    writeFileSync(entry, "return 1;");
+    pi.getFlag.mockImplementation((name?: string) => (name === "run" ? entry : false));
+    executeCode.mockResolvedValue({
+      success: false,
+      errors: [{ line: 1, col: 1, message: "bad job" }],
+      logs: [],
+      returnValue: undefined,
+      elapsedMs: 1,
+    });
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      expect(handlers.get("session_start")).toBeDefined();
+      await handlers.get("session_start")?.({}, ctx);
+      expect(executeCode).toHaveBeenCalledWith(
+        "return 1;",
+        expect.any(String),
+        expect.any(Object),
+        expect.any(Object),
+      );
+      expect(handlers.get("before_agent_start")).toBeDefined();
+      expect(stderr).toHaveBeenCalledWith("bad job\n");
+      expect(ctx.ui.notify).not.toHaveBeenCalledWith("Codemode yolo mode enabled", "info");
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  test("propagates /run failures to process exitCode", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, commands, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+    executeCode.mockResolvedValue({
+      success: false,
+      errors: [{ line: 1, col: 1, message: "runtime failure" }],
+      logs: [],
+      returnValue: undefined,
+      elapsedMs: 1,
+    });
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const priorExitCode = process.exitCode;
+    process.exitCode = undefined;
+    try {
+      expect(commands.get("run")).toBeDefined();
+      await commands.get("run")?.handler("missing.ts", ctx);
+      expect(process.exitCode).toBe(1);
+      expect(stderr).toHaveBeenCalled();
+    } finally {
+      process.exitCode = priorExitCode;
+      stderr.mockRestore();
+    }
   });
 
   test("registers flag, codemode tool, lifecycle handlers, and toggle command", async () => {
@@ -89,6 +202,10 @@ describe("codemodeExtension", () => {
     codemodeExtension(pi as never);
 
     expect(pi.registerFlag).toHaveBeenCalledWith("no-codemode", expect.any(Object));
+    expect(pi.registerFlag).toHaveBeenCalledWith(
+      "run",
+      expect.objectContaining({ type: "string" }),
+    );
     expect(pi.registerTool).toHaveBeenCalledWith(expect.objectContaining({ name: "codemode" }));
     expect([...handlers.keys()]).toEqual([
       "session_start",
@@ -96,6 +213,7 @@ describe("codemodeExtension", () => {
       "before_agent_start",
     ]);
     expect(commands.has("codemode")).toBe(true);
+    expect(commands.has("run")).toBe(true);
   });
 
   test("session_start defaults to yolo mode with codemode and native bash", async () => {

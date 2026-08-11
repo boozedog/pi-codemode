@@ -15,6 +15,16 @@ import type { McpClient } from "./mcp-client.js";
 import type { McpServerInfo } from "./search.js";
 import { formatNpmScriptPlan, planNpmScript } from "./npm-scripts.js";
 
+export interface SendMessageParams {
+  content: string;
+  display?: boolean;
+  details?: unknown;
+  toModel?: boolean;
+}
+
+/** Routes guest sendMessage output to the user (TUI) or stderr (non-interactive). */
+export type SendMessageFn = (params: SendMessageParams) => void | Promise<void>;
+
 /** The shape the sandbox code sees at runtime */
 export interface ToolBindings {
   read(params: { path: string; offset?: number; limit?: number }): Promise<string>;
@@ -33,6 +43,8 @@ export interface ToolBindings {
   cli: Record<string, unknown>;
   mcp?: Record<string, unknown>;
   progress(message: string): void;
+  /** Emit a message to the end user (TUI) or stderr (non-interactive). */
+  sendMessage?(params: SendMessageParams): void | Promise<void>;
   /** MCP server namespaces are added dynamically */
   [serverNamespace: string]: unknown;
 }
@@ -49,6 +61,8 @@ export interface ToolBindingsOptions {
   cli?: CliConfig;
   /** Callback for streaming progress to the UI */
   onUpdate?: AgentToolUpdateCallback;
+  /** Sink for guest sendMessage output (default: no-op). */
+  sendMessage?: SendMessageFn;
 }
 
 /**
@@ -59,7 +73,7 @@ export interface ToolBindingsOptions {
  * to ensure operations stay within the project directory.
  */
 export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
-  const { cwd, mcpServers, mcpClient, signal, onUpdate } = options;
+  const { cwd, mcpServers, mcpClient, signal, onUpdate, sendMessage } = options;
 
   // Create file tools scoped to the project directory
   const fileTools = createFileTools({ projectRoot: cwd });
@@ -205,6 +219,12 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
           content: [{ type: "text", text: message }],
           details: { progress: true },
         });
+      }
+    },
+
+    async sendMessage(params: SendMessageParams) {
+      if (sendMessage) {
+        await sendMessage(params);
       }
     },
   };
@@ -374,6 +394,11 @@ function describeBuiltinTools(toolName?: string): string {
     progress: {
       description: "Report progress to the user (streamed to UI in real-time).",
       params: "{ message: string }",
+    },
+    sendMessage: {
+      description:
+        "Emit a message to the end user without adding it to model context. Set toModel: true to intentionally send it to the model.",
+      params: "{ content: string; display?: boolean; details?: unknown; toModel?: boolean }",
     },
   };
 

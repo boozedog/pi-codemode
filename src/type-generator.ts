@@ -209,6 +209,26 @@ const builtinToolDescriptors: Record<string, { description?: string; inputSchema
       required: ["message"],
     },
   },
+  sendMessage: {
+    description:
+      "Emit a message to the end user without adding it to model context. Set toModel: true to intentionally send it to the model.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "Message content to show the user" },
+        display: {
+          type: "boolean",
+          description: "Whether to show it in the TUI (default: true).",
+        },
+        details: { description: "Optional structured details for the renderer." },
+        toModel: {
+          type: "boolean",
+          description: "Opt in to sending this message to the model (default: false).",
+        },
+      },
+      required: ["content"],
+    },
+  },
 };
 
 function sanitizeToolName(name: string): string {
@@ -349,6 +369,9 @@ ${generated
 
 /** Print diagnostic/progress output. Prefer returning final values; do not print the same value you return. */
 declare function print(...args: any[]): void;
+
+/** Emit a message to the end user without adding it to model context. */
+declare function sendMessage(args: { content: string; display?: boolean; details?: unknown; toModel?: boolean }): Promise<void>;
 
 /** Named string constants passed via the 'strings' parameter. Use for file content that's hard to quote in JS. */
 declare const π: Readonly<Record<string, string>>;

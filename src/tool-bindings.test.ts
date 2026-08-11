@@ -43,6 +43,23 @@ function tempProject() {
   return dir;
 }
 
+describe("createToolBindings sendMessage", () => {
+  test("routes sendMessage to the provided sink", () => {
+    const sink = vi.fn<() => void>();
+    const bindings = createToolBindings({ cwd: process.cwd(), sendMessage: sink });
+
+    bindings.sendMessage!({ content: "hello", display: false });
+
+    expect(sink).toHaveBeenCalledWith({ content: "hello", display: false });
+  });
+
+  test("sendMessage defaults to a no-op when no sink is provided", () => {
+    const bindings = createToolBindings({ cwd: process.cwd() });
+
+    expect(() => bindings.sendMessage!({ content: "x" })).not.toThrow();
+  });
+});
+
 describe("createToolBindings MCP discovery", () => {
   test("plans npm scripts from package.json as visible cli calls", async () => {
     const cwd = tempProject();

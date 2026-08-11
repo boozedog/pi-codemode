@@ -33,6 +33,8 @@ export interface ExecuteBindingsContext {
   }) => void;
   /** Workspace / project root for this call */
   cwd?: string;
+  /** Pi run mode: 'tui' | 'rpc' | 'json' | 'print' (drives sendMessage routing) */
+  mode?: string;
 }
 
 export interface ExecuteToolOptions {
@@ -78,6 +80,7 @@ Available tools in code:
 - codemode.describe_tools({ namespace, tool? }) → browse MCP tools
 - mcp.<namespace>.<tool>(args) → call MCP tools (e.g., mcp.github.search_issues())
 - codemode.progress(msg) → stream progress to UI
+- sendMessage({ content, display?, details?, toModel? }) → emit human-facing output; set toModel: true to opt into model context
 - print(...) → optional diagnostic/progress output; avoid printing values you also return
 - π.keyName → string constants from the 'strings' parameter
 
@@ -114,14 +117,10 @@ Return the final value you want in the result. Prefer return over print for fina
     ) {
       // For now, do a type check only (Phase 2)
       // Phase 3 will add actual execution
-      const callCwd =
-        typeof _ctx === "object" &&
-        _ctx &&
-        "cwd" in _ctx &&
-        typeof (_ctx as { cwd?: unknown }).cwd === "string"
-          ? (_ctx as { cwd: string }).cwd
-          : process.cwd();
-      const callBindings = getBindings?.({ signal, onUpdate, cwd: callCwd }) ?? bindings!;
+      const ctx = _ctx as { cwd?: unknown; mode?: string };
+      const callCwd = typeof ctx.cwd === "string" ? ctx.cwd : process.cwd();
+      const callBindings =
+        getBindings?.({ signal, onUpdate, cwd: callCwd, mode: ctx.mode }) ?? bindings!;
       const result = await executeCode(params.code, typeDefs, callBindings, {
         timeout,
         maxOutputSize,
@@ -368,7 +367,7 @@ function expandHint(description: "to expand" | "to collapse"): string {
 /**
  * Execute TypeScript code with type checking and configured sandbox execution.
  */
-async function executeCode(
+export async function executeCode(
   code: string,
   typeDefs: string,
   bindings: ToolBindings,

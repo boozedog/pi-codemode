@@ -22,6 +22,11 @@ import { createToolBindings } from "./tool-bindings.js";
 import { loadConfig, type CodemodeConfig, type CodemodeMode } from "./config.js";
 import { createFileTools, type FileScope } from "./file-tools.js";
 import { generateNativeEditGuidance, generateSystemPromptAddition } from "./system-prompt.js";
+import type { SendMessageFn, SendMessageParams } from "./tool-bindings.js";
+import { executeCode } from "./execute-tool.js";
+import { readJobEntry, resolveJobEntry, serializeJobResult, writeJobStdout } from "./runner.js";
+
+const CODEMODE_MESSAGE_TYPE = "codemode";
 
 export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Configuration ---
@@ -36,6 +41,11 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     description: "Deprecated no-op: codemode is disabled by default",
     type: "boolean",
     default: false,
+  });
+
+  pi.registerFlag("run", {
+    description: "Run a codemode skill or TypeScript entry without a model turn",
+    type: "string",
   });
 
   // --- State ---
@@ -99,6 +109,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       content: Array<{ type: string; text: string }>;
       details?: unknown;
     }) => void,
+    mode?: string,
   ) {
     return createToolBindings({
       cwd,
@@ -107,8 +118,22 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       cli: config.cli,
       signal,
       onUpdate,
+      sendMessage: makeSendMessageSink(mode),
     });
   }
+
+  /**
+   * Route guest sendMessage output without putting default chatter in model context.
+   */
+  function makeSendMessageSink(mode: string | undefined): SendMessageFn {
+    return createSendMessageSink(pi, mode);
+  }
+
+  // Render codemode.sendMessage output in the TUI without LLM context.
+  pi.registerEntryRenderer(CODEMODE_MESSAGE_TYPE, (entry, options, theme) => {
+    const content = (entry as { data?: { content?: string } }).data?.content ?? "";
+    return new Text(theme.fg("accent", content), options.outputPad ?? 0, 0);
+  });
 
   // --- Shared file scope (mutable unrestricted flag flipped in applyMode) ---
   const fileScope: FileScope = { root: process.cwd(), unrestricted: false };
@@ -121,7 +146,8 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
   const executeTool = createExecuteTool({
     typeDefs: typeCheckerTypeDefs,
-    getBindings: ({ signal, onUpdate, cwd }) => getBindings(cwd ?? process.cwd(), signal, onUpdate),
+    getBindings: ({ signal, onUpdate, cwd, mode }) =>
+      getBindings(cwd ?? process.cwd(), signal, onUpdate, mode),
     timeout: config.executor?.timeoutMs ?? 120_000,
     executor: { kind: config.executor?.type ?? "quickjs" },
   });
@@ -131,6 +157,13 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Session lifecycle ---
 
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
+    const requestedJob = pi.getFlag("run");
+    if (typeof requestedJob === "string" && requestedJob.trim()) {
+      const code = await runJob(requestedJob.trim(), ctx);
+      // Pi's print loop has no model turn to finish the process after an extension flag.
+      if (ctx.mode === "print") process.exit(code);
+      return;
+    }
     // Store baseline native tool set for toggling back to "off".
     // Strip codemode-owned names in case Pi already activated newly registered tools.
     const owned = new Set(codemodeOwnedTools());
@@ -189,7 +222,43 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     },
   });
 
+  pi.registerCommand("run", {
+    description: "Run a codemode skill or TypeScript entry without a model turn",
+    handler: async (args: string, ctx: ExtensionContext) => {
+      const input = args.trim();
+      if (!input) {
+        process.stderr.write("Usage: /run <skill-name-or-path>\n");
+        process.exitCode = 2;
+        return;
+      }
+      const code = await runJob(input, ctx);
+      if (code !== 0) process.exitCode = code;
+    },
+  });
+
   // --- Helpers ---
+
+  async function runJob(input: string, ctx: ExtensionContext): Promise<number> {
+    try {
+      const entry = resolveJobEntry(input, ctx.cwd || process.cwd());
+      const result = await executeCode(
+        readJobEntry(entry),
+        typeCheckerTypeDefs,
+        getBindings(ctx.cwd || process.cwd(), undefined, undefined, ctx.mode),
+        { timeout: config.executor?.timeoutMs ?? 120_000, executor: { kind: "quickjs" } },
+      );
+      for (const log of result.logs) process.stderr.write(log + "\n");
+      if (!result.success) {
+        process.stderr.write(result.errors.map((error) => error.message).join("\n") + "\n");
+        return 1;
+      }
+      writeJobStdout(serializeJobResult(result.returnValue));
+      return 0;
+    } catch (error) {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      return 1;
+    }
+  }
 
   function applyMode(mode: CodemodeMode, ctx: ExtensionContext) {
     // Patch tools share one registration; flip path scope with the mode.
@@ -290,6 +359,33 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   function codemodeOwnedTools() {
     return ["codemode", "replace_in_file", "apply_patch"];
   }
+}
+
+/** Build the host sink for guest messages. Default output never enters model context. */
+export function createSendMessageSink(
+  pi: Pick<ExtensionAPI, "appendEntry" | "sendMessage">,
+  mode: string | undefined,
+): SendMessageFn {
+  return async (params: SendMessageParams) => {
+    if (params.display !== false && (mode !== "tui" || params.toModel !== true)) {
+      if (mode === "tui") {
+        pi.appendEntry(CODEMODE_MESSAGE_TYPE, {
+          content: params.content,
+          details: params.details,
+        });
+      } else {
+        process.stderr.write(params.content + "\n");
+      }
+    }
+    if (params.toModel === true) {
+      pi.sendMessage({
+        customType: CODEMODE_MESSAGE_TYPE,
+        content: params.content,
+        display: params.display ?? true,
+        details: params.details,
+      });
+    }
+  };
 }
 
 function createTopLevelFileTools(scope: FileScope): ToolDefinition[] {
