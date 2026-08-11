@@ -24,7 +24,13 @@ import { createFileTools, type FileScope } from "./file-tools.js";
 import { generateNativeEditGuidance, generateSystemPromptAddition } from "./system-prompt.js";
 import type { SendMessageFn, SendMessageParams } from "./tool-bindings.js";
 import { executeCode } from "./execute-tool.js";
-import { readJobEntry, resolveJobEntry, serializeJobResult, writeJobStdout } from "./runner.js";
+import {
+  parseRunInvocation,
+  readJobEntry,
+  resolveJobEntry,
+  serializeJobResult,
+  writeJobStdout,
+} from "./runner.js";
 
 const CODEMODE_MESSAGE_TYPE = "codemode";
 
@@ -227,7 +233,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     handler: async (args: string, ctx: ExtensionContext) => {
       const input = args.trim();
       if (!input) {
-        process.stderr.write("Usage: /run <skill-name-or-path>\n");
+        process.stderr.write("Usage: /run <skill-name-or-path> [key=value|--key[=value]]\n");
         process.exitCode = 2;
         return;
       }
@@ -240,12 +246,17 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
   async function runJob(input: string, ctx: ExtensionContext): Promise<number> {
     try {
-      const entry = resolveJobEntry(input, ctx.cwd || process.cwd());
+      const invocation = parseRunInvocation(input);
+      const entry = resolveJobEntry(invocation.job, ctx.cwd || process.cwd());
       const result = await executeCode(
         readJobEntry(entry),
         typeCheckerTypeDefs,
         getBindings(ctx.cwd || process.cwd(), undefined, undefined, ctx.mode),
-        { timeout: config.executor?.timeoutMs ?? 120_000, executor: { kind: "quickjs" } },
+        {
+          timeout: config.executor?.timeoutMs ?? 120_000,
+          executor: { kind: "quickjs" },
+          args: invocation.args,
+        },
       );
       for (const log of result.logs) process.stderr.write(log + "\n");
       if (!result.success) {

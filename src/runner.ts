@@ -8,6 +8,75 @@ export interface JobPackage {
   description?: string;
 }
 
+export interface RunInvocation {
+  job: string;
+  args: Record<string, string>;
+}
+
+/** Parse the single value accepted by both `--run` and `/run`. */
+export function parseRunInvocation(input: string): RunInvocation {
+  const tokens = tokenizeRunInput(input);
+  const job = tokens.shift();
+  if (!job) throw new Error("Usage: /run <skill-name-or-path> [key=value|--key[=value]]");
+
+  const args: Record<string, string> = {};
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const equals = token.indexOf("=");
+    if (equals > 0 && !token.startsWith("--")) {
+      args[token.slice(0, equals)] = token.slice(equals + 1);
+      continue;
+    }
+    if (!token.startsWith("--") || token.length === 2) {
+      throw new Error(`Invalid run argument: ${token}`);
+    }
+    const body = token.slice(2);
+    const bodyEquals = body.indexOf("=");
+    if (bodyEquals >= 0) {
+      if (bodyEquals === 0) throw new Error(`Invalid run argument: ${token}`);
+      args[body.slice(0, bodyEquals)] = body.slice(bodyEquals + 1);
+      continue;
+    }
+    const key = body;
+    const next = tokens[index + 1];
+    if (next !== undefined && !next.startsWith("--")) {
+      args[key] = next;
+      index += 1;
+    } else {
+      args[key] = "true";
+    }
+  }
+  return { job, args };
+}
+
+function tokenizeRunInput(input: string): string[] {
+  const tokens: string[] = [];
+  let token = "";
+  let quote: "'" | '"' | undefined;
+  let escaping = false;
+  for (const char of input.trim()) {
+    if (escaping) {
+      token += char;
+      escaping = false;
+    } else if (char === "\\" && quote) {
+      escaping = true;
+    } else if (quote) {
+      if (char === quote) quote = undefined;
+      else token += char;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+    } else if (/\s/.test(char)) {
+      if (token) tokens.push(token);
+      token = "";
+    } else {
+      token += char;
+    }
+  }
+  if (escaping || quote) throw new Error("Unterminated quote in run invocation");
+  if (token) tokens.push(token);
+  return tokens;
+}
+
 function parseSkillMetadata(path: string): { name?: string; description?: string; entry?: string } {
   const text = readFileSync(path, "utf8");
   if (!text.startsWith("---")) return {};

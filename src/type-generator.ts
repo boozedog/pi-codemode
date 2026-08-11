@@ -375,6 +375,8 @@ declare function sendMessage(args: { content: string; display?: boolean; details
 
 /** Named string constants passed via the 'strings' parameter. Use for file content that's hard to quote in JS. */
 declare const π: Readonly<Record<string, string>>;
+/** Key/value arguments from the job runner. Missing keys are undefined. */
+declare const args: Readonly<Partial<Record<string, string>>>;
 
 ${generateCliTypeDefs(config?.cli)}
 `;

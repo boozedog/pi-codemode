@@ -38,7 +38,11 @@ export class QuickJsExecutor implements CodeExecutor {
   async execute(
     code: string,
     providersOrFns: ExecutionProvider[] | Record<string, unknown>,
-    options?: { strings?: Record<string, string>; signal?: AbortSignal },
+    options?: {
+      strings?: Record<string, string>;
+      args?: Readonly<Partial<Record<string, string>>>;
+      signal?: AbortSignal;
+    },
   ): Promise<ExecuteResult> {
     if (options?.signal?.aborted) {
       return { result: undefined, error: "Execution cancelled", logs: [] };
@@ -127,6 +131,9 @@ export class QuickJsExecutor implements CodeExecutor {
       const strings = newJsonHandle(vm, options?.strings ?? {});
       vm.setProp(global, "π", strings);
       strings.dispose();
+      const args = newJsonHandle(vm, options?.args ?? {});
+      vm.setProp(global, "args", args);
+      args.dispose();
 
       const setup = vm.evalCode(`
 				globalThis.codemode = new Proxy({}, {
@@ -273,6 +280,7 @@ export class QuickJsExecutor implements CodeExecutor {
         globalThis.print = undefined;
         globalThis.console = undefined;
         globalThis.π = undefined;
+        globalThis.args = undefined;
       `);
       if (cleanup.error) cleanup.error.dispose();
       else cleanup.value.dispose();

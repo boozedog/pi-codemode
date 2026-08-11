@@ -13,6 +13,31 @@ Useful controls:
 - `/codemode off` restores normal Pi tools, including native `write`/`edit`/`bash`.
 - Bare `/codemode` toggles `off <-> on`.
 
+### Running jobs with arguments
+
+Run a skill or TypeScript entry without a model turn. The job name and arguments are
+one string; quote the `--run` value when it contains arguments:
+
+```bash
+pi -p --run 'daily-mail date=2026-08-10'
+pi -p --run 'daily-mail --date 2026-08-10 --verbose'
+pi -p --run 'daily-mail --date=2026-08-10'
+pi -p --run daily-mail
+```
+
+The interactive command uses the same grammar: `/run daily-mail --date 2026-08-10`.
+Jobs read values from `args`, for example `args.date` (missing keys are `undefined`):
+
+```ts
+const date = args.date ?? new Date().toISOString().slice(0, 10);
+return { date };
+```
+
+Supported forms are `key=value`, `--key=value`, `--key value`, and bare `--flag`
+(which gives `"true"`). Values are strings. Pi does not support sibling flags after
+`--run`: `pi -p --run daily-mail --date 2026-08-10` is rejected as an unknown Pi
+option. Put all arguments inside the single quoted `--run` string instead.
+
 ### Write-door matrix
 
 `on` mode is **write-locked**: native write-capable tools (`write`, `edit`, `bash`) are stripped from the active set. The only write doors are the root-scoped patch tools and allowlisted `cli.*` operations.

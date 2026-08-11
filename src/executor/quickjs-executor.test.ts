@@ -2,6 +2,22 @@ import { describe, expect, test } from "vitest";
 import { QuickJsExecutor } from "./quickjs-executor.js";
 
 describe("QuickJsExecutor", () => {
+  test("injects job arguments as a data global", async () => {
+    const executor = new QuickJsExecutor({ timeout: 5_000 });
+    const result = await executor.execute(
+      "return { date: args.date, missing: args.missing };",
+      [{ name: "codemode", fns: {} }],
+      { args: { date: "2026-08-10" } },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toEqual({ date: "2026-08-10" });
+
+    const noArgs = await executor.execute("return args;", [{ name: "codemode", fns: {} }]);
+    expect(noArgs.error).toBeUndefined();
+    expect(noArgs.result).toEqual({});
+  });
+
   test("returns values and captures print output", async () => {
     const executor = new QuickJsExecutor({ timeout: 5_000 });
     const result = await executor.execute(

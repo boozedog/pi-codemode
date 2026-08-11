@@ -16,7 +16,11 @@ export interface CodeExecutor {
   execute(
     code: string,
     providersOrFns: ExecutionProvider[] | Record<string, unknown>,
-    options?: { strings?: Record<string, string>; signal?: AbortSignal },
+    options?: {
+      strings?: Record<string, string>;
+      args?: Readonly<Partial<Record<string, string>>>;
+      signal?: AbortSignal;
+    },
   ): Promise<ExecuteResult>;
   shutdown?(): Promise<void>;
 }

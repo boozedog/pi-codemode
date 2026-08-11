@@ -144,7 +144,9 @@ describe("codemodeExtension", () => {
     codemodeExtension(pi as never);
     const entry = join(mkdtempSync(join(tmpdir(), "codemode-run-")), "main.ts");
     writeFileSync(entry, "return 1;");
-    pi.getFlag.mockImplementation((name?: string) => (name === "run" ? entry : false));
+    pi.getFlag.mockImplementation((name?: string) =>
+      name === "run" ? `${entry} date=2026-08-10` : false,
+    );
     executeCode.mockResolvedValue({
       success: false,
       errors: [{ line: 1, col: 1, message: "bad job" }],
@@ -160,7 +162,7 @@ describe("codemodeExtension", () => {
         "return 1;",
         expect.any(String),
         expect.any(Object),
-        expect.any(Object),
+        expect.objectContaining({ args: { date: "2026-08-10" } }),
       );
       expect(handlers.get("before_agent_start")).toBeDefined();
       expect(stderr).toHaveBeenCalledWith("bad job\n");

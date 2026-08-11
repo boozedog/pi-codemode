@@ -380,6 +380,7 @@ export async function executeCode(
       details?: unknown;
     }) => void;
     strings?: Record<string, string>;
+    args?: Readonly<Partial<Record<string, string>>>;
     executor?: ExecutorFactoryOptions;
   },
 ): Promise<ExecutionResult> {
@@ -432,6 +433,7 @@ export async function executeCode(
 
     const result = await executor.execute(code, providers, {
       strings: options?.strings,
+      args: options?.args,
       signal: options?.signal,
     });
 
