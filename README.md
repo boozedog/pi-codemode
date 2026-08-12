@@ -236,7 +236,7 @@ Codemode loads JSON config from:
 1. `~/.pi/agent/codemode.json`
 2. `$PROJECT/.pi/codemode.json`
 
-Project config overrides global config. Copy `examples/codemode.json` to `~/.pi/agent/codemode.json` (global) or `$PROJECT/.pi/codemode.json` (project-local). Project `.pi/` is gitignored personal override space — do not commit it. The example is host-only `cli.*` with no personal MCP servers.
+Project config overrides global config. MCP servers are loaded from `~/.config/mcp/mcp.json` (global), then project `.mcp.json`, then `mcp.servers` in the Codemode config. URL servers try Streamable HTTP first and fall back to legacy SSE when that handshake fails for a transport reason. Optional `headers`, `bearerToken`, or adapter-style `bearerTokenEnv` values are sent on both URL transports. Stdio servers use `command`, `args`, `env`, and `cwd`. Tool metadata is cached under `~/.cache/pi-codemode/mcp-metadata.json` so discovery can hydrate without reconnecting. Interactive OAuth browser flows and Pi MCP UI integration are not implemented; pre-auth with `bearerToken`/`bearerTokenEnv`/`headers` or use a stdio server. Copy `examples/codemode.json` to `~/.pi/agent/codemode.json` (global) or `$PROJECT/.pi/codemode.json` (project-local). Project `.pi/` is gitignored personal override space — do not commit it. The example is host-only `cli.*` with no personal MCP servers.
 
 Default config:
 
@@ -391,7 +391,7 @@ The package manifest points Pi at `./dist/index.js`. Runtime packages are normal
 
 ### Dependency policy
 
-Host-coupled or deeply integrated dependencies are exact-pinned when a version change can alter runtime loading or integration behavior. Pure JavaScript libraries use caret ranges so compatible fixes can be installed. `pi-mcp-adapter` is intentionally pinned to `2.5.4` because newer releases currently break this package's deep adapter imports; see [#31](https://github.com/boozedog/pi-codemode/issues/31) before changing it. The Pi peer packages are currently constrained to `^0.73.1`, matching the APIs Codemode integrates with and the development `pi-tui` floor. The upstream ecosystem is also transitioning from `@mariozechner/pi-*` packages to `@earendil-works/*`; this package keeps its existing peer names until that migration is verified.
+Runtime MCP support uses the official `@modelcontextprotocol/client` v2 package. Pure JavaScript libraries use caret ranges so compatible fixes can be installed. Host-coupled or deeply integrated dependencies are exact-pinned when a version change can alter runtime loading or integration behavior. The Pi peer packages are currently constrained to `^0.73.1`, matching the APIs Codemode integrates with and the development `pi-tui` floor. The upstream ecosystem is also transitioning from `@mariozechner/pi-*` packages to `@earendil-works/*`; this package keeps its existing peer names until that migration is verified.
 
 ## Development
 

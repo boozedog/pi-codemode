@@ -1,223 +1,321 @@
-// mcp-client.test.ts — MCP client polish tests.
+import { mkdir, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, test } from "vitest";
+import {
+  computeServerHash,
+  connectWithUrlFallback,
+  createMcpClient,
+  flattenMcpContent,
+  httpRequestInit,
+  isRetryableUrlTransportError,
+  isUnsupportedAuthError,
+  loadMcpServers,
+  projectRoot,
+} from "./mcp-client.js";
 
-import { beforeEach, describe, expect, test, vi } from "vitest";
+const temps: string[] = [];
 
-const state = vi.hoisted(() => ({
-  connectFails: true,
-  needsAuth: false,
-  savedCache: undefined as unknown,
-  saveCacheFails: false,
-  tools: [
-    { name: "search_issues", description: "Search issues", inputSchema: {} },
-    { name: "create_issue", description: "Create issue", inputSchema: {} },
-  ] as Array<{ name: string; description: string; inputSchema: unknown }>,
-  lastToolCall: undefined as { name: string; arguments: unknown } | undefined,
-  toolResult: {
-    content: [{ type: "text", text: "ok" }],
-    isError: false,
-  } as unknown,
-}));
+async function tempDir(prefix: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), prefix));
+  temps.push(dir);
+  return dir;
+}
 
-vi.mock("pi-mcp-adapter/server-manager.js", () => {
-  class McpServerManager {
-    async connect(): Promise<unknown> {
-      if (state.connectFails) throw new Error("should not connect in this test");
-      return {
-        status: state.needsAuth ? "needs-auth" : "connected",
-        tools: state.tools,
-        resources: [],
-      };
-    }
-    getConnection(): unknown {
-      return {
-        client: {
-          callTool: async (call: { name: string; arguments: unknown }) => {
-            state.lastToolCall = call;
-            return state.toolResult;
-          },
-        },
-      };
-    }
-    touch(): void {}
-    incrementInFlight(): void {}
-    decrementInFlight(): void {}
-    async closeAll(): Promise<void> {}
-  }
-  return { McpServerManager };
+afterEach(async () => {
+  await Promise.all(temps.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-vi.mock("pi-mcp-adapter/config.js", () => ({
-  loadMcpConfig: () => ({
-    mcpServers: {
-      "github-mcp": { command: "github" },
-      slack: { command: "slack" },
-    },
-  }),
-}));
+const fixture = `
+const readline = require("readline");
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  const request = JSON.parse(line);
+  if (request.method === "initialize") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } } }) + "\\n");
+  } else if (request.method === "notifications/initialized") {
+    return;
+  } else if (request.method === "tools/list") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { tools: [{ name: "search-issues", description: "Search", inputSchema: { type: "object" } }] } }) + "\\n");
+  } else if (request.method === "tools/call") {
+    const isError = request.params?.arguments?.fail === true;
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text: isError ? "missing query" : "ok" }], isError } }) + "\\n");
+  }
+});
+`;
 
-vi.mock("pi-mcp-adapter/metadata-cache.js", () => ({
-  computeServerHash: () => "hash",
-  isServerCacheValid: () => false,
-  loadMetadataCache: () => null,
-  saveMetadataCache: (cache: unknown) => {
-    if (state.saveCacheFails) throw new Error("cache write failed");
-    state.savedCache = cache;
-  },
-  serializeResources: () => [],
-  serializeTools: (tools: unknown) => tools,
-}));
+function stdioServer() {
+  return { command: process.execPath, args: ["-e", fixture] };
+}
 
-vi.mock("pi-mcp-adapter/tool-registrar.js", () => ({
-  transformMcpContent: (content: unknown) => content,
-}));
+async function isolatedClient(extra: Parameters<typeof createMcpClient>[0] = {}) {
+  const projectDir = await tempDir("codemode-mcp-project-");
+  const homeDir = await tempDir("codemode-mcp-home-");
+  const cachePath = join(projectDir, "mcp-metadata.json");
+  return createMcpClient({
+    projectDir,
+    homeDir,
+    cachePath,
+    ...extra,
+  });
+}
 
-import { createMcpClient } from "./mcp-client.js";
+describe("MCP config merge", () => {
+  test("loads global then project MCP files", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    const homeDir = await tempDir("codemode-mcp-home-");
+    await mkdir(join(homeDir, ".config", "mcp"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".config", "mcp", "mcp.json"),
+      JSON.stringify({
+        mcpServers: { global: { command: "global" }, shared: { command: "global" } },
+      }),
+    );
+    await writeFile(
+      join(projectDir, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: { shared: { command: "project" }, project: { command: "project" } },
+      }),
+    );
 
-describe("mcp client", () => {
-  beforeEach(() => {
-    state.connectFails = true;
-    state.needsAuth = false;
-    state.savedCache = undefined;
-    state.saveCacheFails = false;
-    state.tools = [
-      { name: "search_issues", description: "Search issues", inputSchema: {} },
-      { name: "create_issue", description: "Create issue", inputSchema: {} },
-    ];
-    state.lastToolCall = undefined;
-    state.toolResult = {
-      content: [{ type: "text", text: "ok" }],
-      isError: false,
-    };
+    expect(loadMcpServers(projectDir, homeDir)).toEqual({
+      global: { command: "global" },
+      shared: { command: "project" },
+      project: { command: "project" },
+    });
   });
 
-  test("merges codemode-specific MCP servers into adapter config", () => {
+  test("merges file servers, Codemode config, then explicit overrides", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    const homeDir = await tempDir("codemode-mcp-home-");
+    await writeFile(
+      join(projectDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { shared: { command: "file" }, file: { command: "file" } } }),
+    );
+
     const client = createMcpClient({
+      projectDir,
+      homeDir,
+      cachePath: join(projectDir, "cache.json"),
       config: {
-        mode: "yolo",
-        executor: { type: "quickjs", timeoutMs: 120_000 },
+        mode: "on",
+        executor: { type: "quickjs", timeoutMs: 1_000 },
         mcp: {
           servers: {
+            shared: { command: "codemode" },
             linear: { command: "linear" },
-            slack: { command: "project-slack" },
           },
         },
       },
-    });
-
-    expect(client.listServers()).toEqual(["github-mcp", "slack", "linear"]);
-    expect(client.getServers().map((s) => s.namespace)).toEqual(["github", "slack", "linear"]);
-  });
-
-  test("unknown namespace error lists available namespaces", async () => {
-    const client = createMcpClient();
-
-    await expect(client.call("gitub", "search_issues", {})).rejects.toThrow(
-      'Unknown MCP server namespace: "gitub". Available: github, slack',
-    );
-  });
-
-  test("connection failure names the server and namespace", async () => {
-    const client = createMcpClient();
-
-    await expect(client.call("github", "search_issues", {})).rejects.toThrow(
-      'Failed to connect MCP server "github-mcp" (mcp.github): should not connect in this test',
-    );
-  });
-
-  test("unknown tool error lists available tools after connect", async () => {
-    state.connectFails = false;
-    const client = createMcpClient();
-
-    await expect(client.call("github", "serch_issues", {})).rejects.toThrow(
-      "Unknown MCP tool: mcp.github.serch_issues(). Available: search_issues, create_issue",
-    );
-  });
-
-  test("auth-required error names the server and namespace", async () => {
-    state.connectFails = false;
-    state.needsAuth = true;
-    const client = createMcpClient();
-
-    await expect(client.call("github", "search_issues", {})).rejects.toThrow(
-      'MCP server "github-mcp" (mcp.github) requires authentication. Configure/authenticate it in pi-mcp-adapter first.',
-    );
-  });
-
-  test("successful connection refreshes metadata cache", async () => {
-    state.connectFails = false;
-    const client = createMcpClient();
-
-    await expect(client.call("github", "serch_issues", {})).rejects.toThrow("Unknown MCP tool");
-
-    expect(state.savedCache).toEqual({
-      version: 1,
       servers: {
-        "github-mcp": {
-          configHash: "hash",
-          tools: [
-            { name: "search_issues", description: "Search issues", inputSchema: {} },
-            { name: "create_issue", description: "Create issue", inputSchema: {} },
-          ],
-          resources: [],
-          cachedAt: expect.any(Number),
-        },
+        shared: { command: "override" },
+        slack: { command: "slack" },
+      },
+    });
+
+    expect(client.listServers()).toEqual(["shared", "file", "linear", "slack"]);
+    expect(client.getServers().map((server) => server.namespace)).toEqual([
+      "shared",
+      "file",
+      "linear",
+      "slack",
+    ]);
+  });
+
+  test("reports invalid MCP JSON with the file path", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    const homeDir = await tempDir("codemode-mcp-home-");
+    const path = join(projectDir, ".mcp.json");
+    await writeFile(path, "{");
+
+    expect(() => loadMcpServers(projectDir, homeDir)).toThrow(`Invalid MCP config JSON: ${path}`);
+  });
+});
+
+describe("MCP helpers", () => {
+  test("flattens text content and ignores non-text blocks", () => {
+    expect(flattenMcpContent([])).toBe("(empty result)");
+    expect(
+      flattenMcpContent([
+        { type: "text", text: "one" },
+        { type: "image", data: "abc" },
+        { type: "text", text: "two" },
+      ]),
+    ).toBe("one\ntwo");
+  });
+
+  test("builds URL headers from config headers and bearer tokens", () => {
+    expect(
+      httpRequestInit({
+        url: "https://example.test/mcp",
+        headers: { "X-Test": "1" },
+        bearerToken: "secret",
+      }),
+    ).toEqual({
+      headers: {
+        "X-Test": "1",
+        Authorization: "Bearer secret",
       },
     });
   });
 
-  test("metadata cache write failure does not block connected tool metadata", async () => {
-    state.connectFails = false;
-    state.saveCacheFails = true;
-    const client = createMcpClient();
-
-    await expect(client.call("github", "serch_issues", {})).rejects.toThrow(
-      "Unknown MCP tool: mcp.github.serch_issues(). Available: search_issues, create_issue",
-    );
+  test("resolves adapter-style bearerTokenEnv into an Authorization header", () => {
+    const envName = "CODEMODE_TEST_BEARER";
+    const previous = process.env[envName];
+    process.env[envName] = "from-env";
+    try {
+      expect(
+        httpRequestInit({
+          url: "https://example.test/mcp",
+          auth: "bearer",
+          bearerTokenEnv: envName,
+        }),
+      ).toEqual({
+        headers: { Authorization: "Bearer from-env" },
+      });
+    } finally {
+      if (previous === undefined) delete process.env[envName];
+      else process.env[envName] = previous;
+    }
   });
 
-  test("calls a connected fake MCP tool and returns transformed text", async () => {
-    state.connectFails = false;
-    const client = createMcpClient();
-
-    await expect(client.call("github", "search_issues", { query: "bug" })).resolves.toBe("ok");
+  test("classifies auth errors as unsupported OAuth and not retryable", () => {
+    const unauthorized = Object.assign(new Error("Unauthorized"), { name: "UnauthorizedError" });
+    expect(isUnsupportedAuthError(unauthorized)).toBe(true);
+    expect(isRetryableUrlTransportError(unauthorized)).toBe(false);
+    expect(isRetryableUrlTransportError(new Error("404 Not Found"))).toBe(true);
   });
 
-  test("maps generated TypeScript-safe tool names back to original MCP tool names", async () => {
-    state.connectFails = false;
-    state.tools = [
-      {
-        name: "resolve-library-id",
-        description: "Resolve library",
-        inputSchema: {
-          type: "object",
-          properties: { query: { type: "string" }, libraryName: { type: "string" } },
-          required: ["query", "libraryName"],
-        },
+  test("does not treat HTTP 401 as a retryable SSE fallback", () => {
+    const unauthorized = new Error("SSE error: Non-200 status code (401)");
+    expect(isUnsupportedAuthError(unauthorized)).toBe(true);
+    expect(isRetryableUrlTransportError(unauthorized)).toBe(false);
+  });
+
+  test("falls back from Streamable HTTP to SSE on retryable transport failure", async () => {
+    const kinds: string[] = [];
+    const result = await connectWithUrlFallback(
+      { url: "https://example.test/mcp", bearerToken: "secret" },
+      async (kind, url, requestInit) => {
+        kinds.push(kind);
+        expect(url.toString()).toBe("https://example.test/mcp");
+        expect(requestInit).toEqual({ headers: { Authorization: "Bearer secret" } });
+        if (kind === "http") throw new Error("404 Not Found");
+        return "sse-ok";
       },
-    ];
-    const client = createMcpClient();
+    );
 
-    await expect(
-      client.call("github", "resolve_library_id", {
-        query: "perryts docs",
-        libraryName: "perryts",
-      }),
-    ).resolves.toBe("ok");
-    expect(state.lastToolCall?.name).toBe("resolve-library-id");
+    expect(kinds).toEqual(["http", "sse"]);
+    expect(result).toEqual({ kind: "sse", value: "sse-ok" });
   });
 
-  test("enriches MCP tool errors with schema hints for self correction", async () => {
-    state.connectFails = false;
-    state.toolResult = {
-      content: [{ type: "text", text: "missing query" }],
-      isError: true,
-    };
-    const client = createMcpClient({
+  test("does not fall back to SSE when the server requires OAuth", async () => {
+    await expect(
+      connectWithUrlFallback({ url: "https://example.test/mcp" }, async () => {
+        throw Object.assign(new Error("Unauthorized"), { name: "UnauthorizedError" });
+      }),
+    ).rejects.toThrow("OAuth browser flows are not supported");
+  });
+
+  test("does not fall back to SSE after a 401", async () => {
+    const kinds: string[] = [];
+    await expect(
+      connectWithUrlFallback({ url: "https://example.test/mcp" }, async (kind) => {
+        kinds.push(kind);
+        throw new Error("SSE error: Non-200 status code (401)");
+      }),
+    ).rejects.toThrow(/requires authentication|OAuth browser flows are not supported|401/);
+    expect(kinds).toEqual(["http"]);
+  });
+});
+
+describe("McpClient", () => {
+  test("uses a real stdio SDK connection to list and call tools", async () => {
+    const client = await isolatedClient({ servers: { "github-mcp": stdioServer() } });
+    await expect(client.call("github", "search_issues", { q: "bug" })).resolves.toBe("ok");
+    expect(client.getServers()[0]?.tools[0]?.name).toBe("search-issues");
+    await client.shutdown();
+  });
+
+  test("maps unknown namespaces and sanitized tool names", async () => {
+    const client = await isolatedClient({ servers: { github: stdioServer() } });
+    await expect(client.call("gitub", "search", {})).rejects.toThrow(
+      "Unknown MCP server namespace",
+    );
+    await expect(client.call("github", "search_issues", {})).resolves.toBe("ok");
+    await client.shutdown();
+  });
+
+  test("enriches MCP tool errors with schema hints", async () => {
+    const client = await isolatedClient({
+      servers: { github: stdioServer() },
       enrichError: () => "Parameters:\n  query (required): string",
     });
-
-    await expect(client.call("github", "search_issues", {})).rejects.toThrow(
+    await expect(client.call("github", "search_issues", { fail: true })).rejects.toThrow(
       "Parameters:\n  query (required): string",
     );
+    await client.shutdown();
+  });
+
+  test("hydrates tool metadata from a matching disk cache without connecting", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    const homeDir = await tempDir("codemode-mcp-home-");
+    const cachePath = join(projectDir, "mcp-metadata.json");
+    const servers = { github: { command: "cached-only" } };
+    await writeFile(
+      cachePath,
+      JSON.stringify({
+        version: 1,
+        servers: {
+          github: {
+            configHash: computeServerHash(servers.github),
+            tools: [{ name: "search-issues", description: "Search", inputSchema: {} }],
+            cachedAt: Date.now(),
+          },
+        },
+      }),
+    );
+
+    const client = createMcpClient({ projectDir, homeDir, cachePath, servers });
+    expect(client.getServers()[0]?.tools[0]?.name).toBe("search-issues");
+  });
+
+  test("writes metadata cache after a successful stdio connection", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    const homeDir = await tempDir("codemode-mcp-home-");
+    const cachePath = join(projectDir, "cache", "mcp-metadata.json");
+    const servers = { github: stdioServer() };
+    const client = createMcpClient({ projectDir, homeDir, cachePath, servers });
+    await client.call("github", "search_issues", {});
+    await client.shutdown();
+
+    const cached = JSON.parse(await readFile(cachePath, "utf8")) as {
+      servers: { github: { configHash: string; tools: Array<{ name: string }> } };
+    };
+    expect(cached.servers.github.configHash).toBe(computeServerHash(servers.github));
+    expect(cached.servers.github.tools[0]?.name).toBe("search-issues");
+  });
+
+  test("warmCache keeps healthy servers when one URL server fails auth", async () => {
+    const client = await isolatedClient({
+      servers: {
+        github: stdioServer(),
+        litellm: { url: "https://example.test/mcp" },
+      },
+    });
+    const warmed = await client.warmCache();
+    expect(warmed.find((server) => server.namespace === "github")?.tools[0]?.name).toBe(
+      "search-issues",
+    );
+    expect(warmed.find((server) => server.namespace === "litellm")?.tools).toEqual([]);
+    await client.shutdown();
+  });
+
+  test("advertises the project directory as an MCP root", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    expect(projectRoot(projectDir)).toEqual({
+      uri: `file://${projectDir}`,
+      name: "project",
+    });
   });
 });

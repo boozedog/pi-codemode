@@ -83,13 +83,12 @@ describe("package metadata", () => {
     expect(pkg.dependencies).toEqual(
       expect.objectContaining({
         minisearch: expect.any(String),
-        "pi-mcp-adapter": expect.any(String),
+        "@modelcontextprotocol/client": expect.any(String),
         "@jitl/quickjs-singlefile-mjs-release-sync": expect.any(String),
         "quickjs-emscripten-core": expect.any(String),
         typescript: expect.any(String),
       }),
     );
-    expect(pkg.dependencies?.["pi-mcp-adapter"]).toBe("2.5.4");
     expect(pkg.devDependencies).not.toHaveProperty("typescript");
     expect(pkg.peerDependencies).toEqual(
       expect.objectContaining({
@@ -131,9 +130,8 @@ describe("tag-based distribution docs", () => {
     const readme = readFileSync(join(process.cwd(), "README.md"), "utf8");
 
     expect(readme).toContain("Dependency policy");
-    expect(readme).toContain("pi-mcp-adapter");
-    expect(readme).toContain("2.5.4");
-    expect(readme).toContain("#31");
+    expect(readme).toContain("@modelcontextprotocol/client");
+    expect(readme).toContain("OAuth");
     expect(readme).toMatch(/host-coupled/i);
   });
 });
