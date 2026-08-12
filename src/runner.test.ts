@@ -2,7 +2,13 @@ import { describe, expect, test } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { parseRunInvocation, resolveJobEntry, serializeJobResult } from "./runner.js";
+import {
+  parseRunInvocation,
+  renderHandoffPrompt,
+  resolveJobEntry,
+  resolveJobPackage,
+  serializeJobResult,
+} from "./runner.js";
 
 describe("job runner helpers", () => {
   test.each([
@@ -68,5 +74,24 @@ describe("job runner helpers", () => {
     expect(serializeJobResult(null)).toBe("null\n");
     expect(serializeJobResult({ ok: true })).toBe('{"ok":true}\n');
     expect(serializeJobResult({ count: 3n })).toBe('{"count":"3"}\n');
+  });
+
+  test("reads handoff metadata and renders the skill prompt", () => {
+    const root = mkdtempSync(join(tmpdir(), "codemode-handoff-"));
+    try {
+      writeFileSync(
+        join(root, "SKILL.md"),
+        "---\nhandoff: true\n---\nReview the result: {{result.json}} ({{args}})",
+      );
+      writeFileSync(join(root, "main.ts"), "return { ok: true };");
+      const pkg = resolveJobPackage(root);
+      expect(pkg.handoff).toBe(true);
+      expect(pkg.prompt).toContain("Review the result");
+      expect(renderHandoffPrompt(pkg.prompt ?? "", { ok: true }, { date: "today" })).toBe(
+        'Review the result: {"ok":true} ({"date":"today"})',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

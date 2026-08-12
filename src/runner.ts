@@ -6,6 +6,8 @@ export interface JobPackage {
   entry: string;
   name?: string;
   description?: string;
+  handoff?: boolean;
+  prompt?: string;
 }
 
 export interface RunInvocation {
@@ -77,7 +79,12 @@ function tokenizeRunInput(input: string): string[] {
   return tokens;
 }
 
-function parseSkillMetadata(path: string): { name?: string; description?: string; entry?: string } {
+function parseSkillMetadata(path: string): {
+  name?: string;
+  description?: string;
+  entry?: string;
+  handoff?: boolean;
+} {
   const text = readFileSync(path, "utf8");
   if (!text.startsWith("---")) return {};
   const end = text.indexOf("\n---", 3);
@@ -85,7 +92,7 @@ function parseSkillMetadata(path: string): { name?: string; description?: string
   const values: Record<string, string> = {};
   let section = "";
   for (const line of text.slice(3, end).split("\n")) {
-    const match = /^(name|description|codemode-entry):\s*(.*)$/.exec(line.trim());
+    const match = /^(name|description|codemode-entry|handoff):\s*(.*)$/.exec(line.trim());
     if (match) {
       const value = match[2].replace(/^['"]|['"]$/g, "");
       values[match[1]] = value;
@@ -99,7 +106,50 @@ function parseSkillMetadata(path: string): { name?: string; description?: string
       );
     }
   }
-  return { name: values.name, description: values.description, entry: values.entry };
+  return {
+    name: values.name,
+    description: values.description,
+    entry: values.entry,
+    handoff: values.handoff === "true",
+  };
+}
+
+/** Resolve a skill and its optional model handoff prompt. */
+export function resolveJobPackage(
+  input: string,
+  cwd = process.cwd(),
+  roots?: string[],
+): JobPackage {
+  const candidate = isAbsolute(input) ? input : resolve(cwd, input);
+  const packageRoot =
+    existsSync(candidate) && statSync(candidate).isDirectory() ? candidate : undefined;
+  const searchRoots = roots ?? [join(cwd, "jobs"), join(cwd, ".pi", "jobs")];
+  const root =
+    packageRoot ?? searchRoots.map((base) => join(base, input)).find((p) => existsSync(p));
+  if (!root || !existsSync(join(root, "SKILL.md")))
+    throw new Error(`Codemode job not found: ${input}`);
+  const skill = readFileSync(join(root, "SKILL.md"), "utf8");
+  const metadata = parseSkillMetadata(join(root, "SKILL.md"));
+  const entries = metadata.entry !== undefined ? [metadata.entry] : ["scripts/main.ts", "main.ts"];
+  const realRoot = realpathSync(root);
+  for (const entry of entries) {
+    if (!entry.endsWith(".ts")) throw new Error(`Codemode entry must be a .ts file: ${entry}`);
+    const path = resolve(root, entry);
+    if (!existsSync(path) || !statSync(path).isFile()) continue;
+    const realPath = realpathSync(path);
+    if (realPath.startsWith(realRoot + "/")) {
+      const body = skill.startsWith("---") ? skill.replace(/^---[\s\S]*?\n---\s*\n?/, "") : skill;
+      return {
+        root: realRoot,
+        entry: realPath,
+        name: metadata.name,
+        description: metadata.description,
+        handoff: metadata.handoff,
+        prompt: body.trim(),
+      };
+    }
+  }
+  throw new Error(`No codemode entry found in skill: ${root}`);
 }
 
 export function resolveJobEntry(input: string, cwd = process.cwd(), roots?: string[]): string {
@@ -125,6 +175,24 @@ export function resolveJobEntry(input: string, cwd = process.cwd(), roots?: stri
     if (realPath.startsWith(realRoot + "/")) return realPath;
   }
   throw new Error(`No codemode entry found in skill: ${root}`);
+}
+
+export function renderHandoffPrompt(
+  prompt: string,
+  result: unknown,
+  args: Record<string, string>,
+): string {
+  const serialized = serializeJobResult(result).trimEnd();
+  const json =
+    result === undefined
+      ? "undefined"
+      : JSON.stringify(result, (_key, value) =>
+          typeof value === "bigint" ? String(value) : value,
+        );
+  return prompt
+    .replaceAll("{{result.json}}", json)
+    .replaceAll("{{result}}", serialized)
+    .replaceAll("{{args}}", JSON.stringify(args));
 }
 
 export function serializeJobResult(value: unknown): string {

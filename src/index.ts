@@ -28,6 +28,8 @@ import {
   parseRunInvocation,
   readJobEntry,
   resolveJobEntry,
+  resolveJobPackage,
+  renderHandoffPrompt,
   serializeJobResult,
   writeJobStdout,
 } from "./runner.js";
@@ -60,6 +62,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   let originalTools: string[] = [];
   let mcpClient: McpClient | undefined;
   let mcpServers: McpServerInfo[] = [];
+  let handoffStarted = false;
   /** Startup problems to surface via UI once session_start provides a context. */
   const startupWarnings: string[] = [];
 
@@ -167,7 +170,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     if (typeof requestedJob === "string" && requestedJob.trim()) {
       const code = await runJob(requestedJob.trim(), ctx);
       // Pi's print loop has no model turn to finish the process after an extension flag.
-      if (ctx.mode === "print") process.exit(code);
+      if (ctx.mode === "print" && (code !== 0 || !handoffStarted)) process.exit(code);
       return;
     }
     // Store baseline native tool set for toggling back to "off".
@@ -229,7 +232,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("run", {
-    description: "Run a codemode skill or TypeScript entry without a model turn",
+    description: "Run a codemode skill or TypeScript entry, optionally handing off to the model",
     handler: async (args: string, ctx: ExtensionContext) => {
       const input = args.trim();
       if (!input) {
@@ -247,7 +250,14 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   async function runJob(input: string, ctx: ExtensionContext): Promise<number> {
     try {
       const invocation = parseRunInvocation(input);
-      const entry = resolveJobEntry(invocation.job, ctx.cwd || process.cwd());
+      const packageInfo = (() => {
+        try {
+          return resolveJobPackage(invocation.job, ctx.cwd || process.cwd());
+        } catch {
+          return undefined;
+        }
+      })();
+      const entry = packageInfo?.entry ?? resolveJobEntry(invocation.job, ctx.cwd || process.cwd());
       const result = await executeCode(
         readJobEntry(entry),
         typeCheckerTypeDefs,
@@ -263,12 +273,60 @@ export default function codemodeExtension(pi: ExtensionAPI) {
         process.stderr.write(result.errors.map((error) => error.message).join("\n") + "\n");
         return 1;
       }
+      if (packageInfo?.handoff) {
+        // Handoff is a normal model turn. Prepare the regular tool lifecycle first.
+        prepareSession(ctx);
+        handoffStarted = true;
+        const prompt = renderHandoffPrompt(
+          packageInfo.prompt ?? "",
+          result.returnValue,
+          invocation.args,
+        );
+        if (ctx.mode === "print" || ctx.mode === "json") await startHandoffTurn(prompt);
+        else pi.sendUserMessage(prompt);
+        return 0;
+      }
       writeJobStdout(serializeJobResult(result.returnValue));
       return 0;
     } catch (error) {
       process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
       return 1;
     }
+  }
+
+  async function startHandoffTurn(prompt: string): Promise<void> {
+    let started = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settled = new Promise<void>((resolve, reject) => {
+      pi.on("agent_start", async () => {
+        started = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = undefined;
+        }
+      });
+      pi.on("agent_settled", async () => {
+        if (started) {
+          if (timer) clearTimeout(timer);
+          resolve();
+        }
+      });
+      timer = setTimeout(() => reject(new Error("Model handoff did not start")), 30_000);
+    });
+    pi.sendUserMessage(prompt);
+    await settled;
+  }
+
+  function prepareSession(ctx: ExtensionContext) {
+    const owned = new Set(codemodeOwnedTools());
+    originalTools = pi.getActiveTools().filter((tool) => !owned.has(tool));
+    buildSearchIndex(
+      pi.getAllTools().map((t) => ({ name: t.name, description: t.description })),
+      mcpServers,
+      config.cli,
+    );
+    const startMode: CodemodeMode = pi.getFlag("no-codemode") ? "off" : config.mode;
+    applyMode(startMode, ctx);
   }
 
   function applyMode(mode: CodemodeMode, ctx: ExtensionContext) {

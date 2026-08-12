@@ -1,6 +1,6 @@
 /* eslint-disable vitest/require-mock-type-parameters */
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -61,6 +61,7 @@ function createPiMock() {
     registerEntryRenderer: vi.fn(),
     appendEntry: vi.fn(),
     sendMessage: vi.fn(),
+    sendUserMessage: vi.fn(),
     getActiveTools: vi.fn(() => ["read", "write", "bash"]),
     getAllTools: vi.fn(() => [
       { name: "read", description: "Read files" },
@@ -169,6 +170,49 @@ describe("codemodeExtension", () => {
       expect(ctx.ui.notify).not.toHaveBeenCalledWith("Codemode yolo mode enabled", "info");
     } finally {
       stderr.mockRestore();
+    }
+  });
+
+  test("hands off a successful preflight without exiting print mode", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const root = mkdtempSync(join(tmpdir(), "codemode-handoff-"));
+    const job = join(root, "job");
+    mkdirSync(job);
+    writeFileSync(join(job, "SKILL.md"), "---\nhandoff: true\n---\nFinish this: {{result.json}}");
+    writeFileSync(join(job, "main.ts"), "return { ready: true };");
+    const { pi, handlers, ctx } = createPiMock();
+    ctx.mode = "print";
+    ctx.cwd = root;
+    pi.getFlag.mockImplementation((name?: string) =>
+      name === "run" ? "job date=2026-08-10" : false,
+    );
+    executeCode.mockResolvedValue({
+      success: true,
+      errors: [],
+      logs: [],
+      returnValue: { ready: true },
+      elapsedMs: 1,
+    });
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+    try {
+      codemodeExtension(pi as never);
+      const sessionStart = handlers.get("session_start")?.({}, ctx) as Promise<void>;
+      let completed = false;
+      void sessionStart?.then(() => {
+        completed = true;
+      });
+      await Promise.resolve();
+      expect(completed).toBe(false);
+      expect(exit).not.toHaveBeenCalled();
+      expect(pi.setActiveTools).toHaveBeenCalled();
+      expect(pi.sendUserMessage).toHaveBeenCalledWith('Finish this: {"ready":true}');
+      await handlers.get("agent_start")?.({}, ctx);
+      await handlers.get("agent_settled")?.({}, ctx);
+      await sessionStart;
+      expect(completed).toBe(true);
+    } finally {
+      exit.mockRestore();
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

@@ -25,6 +25,17 @@ pi -p --run 'daily-mail --date=2026-08-10'
 pi -p --run daily-mail
 ```
 
+`-p --run` is also the primary preflight-and-handoff workflow. A skill can opt in by
+setting `handoff: true` in its `SKILL.md` frontmatter. Its markdown body is sent to
+the normal model turn after the off-model entry completes. Use `{{result}}` for the
+serialized return value, `{{result.json}}` for JSON, and `{{args}}` for the parsed
+arguments. In this mode stdout contains the final assistant text and the process
+waits for that turn; a non-zero exit means either preflight or the model turn failed.
+Skills without `handoff: true` retain the pure off-model contract: stdout is the
+serialized return value and `-p` exits after the job. `/run` uses the same semantics
+inside the TUI. Prefer only `--run` for handoff invocations; combining it with extra
+bare `pi -p "prompt"` arguments is discouraged and has undefined ordering.
+
 The interactive command uses the same grammar: `/run daily-mail --date 2026-08-10`.
 Jobs read values from `args`, for example `args.date` (missing keys are `undefined`):
 

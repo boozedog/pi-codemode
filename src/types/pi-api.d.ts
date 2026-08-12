@@ -24,6 +24,7 @@ declare module "@mariozechner/pi-coding-agent" {
       },
       options?: unknown,
     ): void;
+    sendUserMessage(content: string, options?: { deliverAs?: "steer" | "followUp" }): void;
     getFlag(name: string): boolean | string | number | undefined;
     getActiveTools(): string[];
     getAllTools(): ToolInfo[];
