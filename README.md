@@ -309,8 +309,7 @@ Codemode-specific MCP servers and typed CLI capabilities can also be configured 
     "vitest": { "backend": "host", "operations": ["run"] },
     "tsc": { "backend": "host", "operations": ["build"] },
     "oxfmt": { "backend": "host", "operations": ["check", "write"] },
-    "oxlint": { "backend": "host", "operations": ["run"] },
-    "vp": { "backend": "host", "operations": ["fmtCheck", "fmtWrite"] }
+    "oxlint": { "backend": "host", "operations": ["run"] }
   }
 }
 ```
