@@ -522,6 +522,24 @@ describe("codemodeExtension", () => {
     expect(expanded.render(80).join("\n")).toContain("Ctrl+O to collapse");
   });
 
+  test("replace_in_file calls render a synthetic patch", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi } = createPiMock();
+    codemodeExtension(pi as never);
+    const tool = pi.registerTool.mock.calls
+      .map((call) => call[0])
+      .find((item) => item.name === "replace_in_file");
+    const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text };
+    const rendered = tool.renderCall(
+      { path: "test.txt", edits: [{ oldText: "old", newText: "new" }] },
+      theme,
+      { expanded: true, isPartial: false },
+    );
+    expect(rendered.render(80).join("\n")).toContain("--- a/test.txt");
+    expect(rendered.render(80).join("\n")).toContain("-old");
+    expect(rendered.render(80).join("\n")).toContain("+new");
+  });
+
   test("off mode leaves native tools active and prompt guidance native", async () => {
     loadConfig.mockReturnValue({
       mode: "off",

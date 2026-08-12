@@ -355,12 +355,12 @@ function describeBuiltinTools(toolName?: string): string {
     },
     replace_in_file: {
       description:
-        "Top-level file tool. Better thought of as replace_in_file: use exact search/replace for precise localized changes. Each oldText must match exactly one unique, non-overlapping region in the original file. Edits are matched against the original file, not sequentially; merge nearby edits into one larger replacement.",
+        "Top-level file tool. Surgical fallback using exact search/replace for tiny unique edits; prefer apply_patch for reviewable change sets. Each oldText is exact, unique, and non-overlapping.",
       params: "{ path: string; edits: Array<{ oldText: string; newText: string }> }",
     },
     apply_patch: {
       description:
-        "Top-level file tool. Apply a text-only unified diff (project-root scoped in on mode; unscoped absolute paths in yolo). Useful for patch/diff-oriented edits; returns clear hunk failure diagnostics.",
+        "Top-level file tool. Preferred patch-native unified diff tool for reviewable change sets. Hunk lines are literal file text; do not JSON-escape quotes. Re-read before retry and use smaller failed hunks.",
       params: "{ patch: string }",
     },
     search_tools: {

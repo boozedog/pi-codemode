@@ -466,7 +466,7 @@ function createTopLevelFileTools(scope: FileScope): ToolDefinition[] {
       name: "replace_in_file",
       label: "Replace in File",
       description:
-        "Replace text in a file using exact oldText/newText edits. Every oldText must match exactly once and edits must not overlap. Paths are scoped to the project root in on mode; in yolo mode absolute paths may reach anywhere on the host.",
+        "Surgical fallback for tiny unique edits. Prefer apply_patch for reviewable change sets. Replace text using exact oldText/newText edits; every oldText must match exactly once and edits must not overlap.",
       parameters: objectSchema({
         path: stringSchema(),
         edits: arraySchema(
@@ -481,13 +481,32 @@ function createTopLevelFileTools(scope: FileScope): ToolDefinition[] {
           fileTools.replace_in_file(params as Parameters<typeof fileTools.replace_in_file>[0]),
         );
       },
+      renderCall(args: unknown, theme: unknown, options?: unknown) {
+        const diffTheme = theme as DiffTheme;
+        const value = args as {
+          path?: string;
+          edits?: Array<{ oldText: string; newText: string }>;
+        };
+        const path = value.path ?? "file";
+        const edits = value.edits ?? [];
+        const preview = [`--- a/${path}`, `+++ b/${path}`, "@@"]
+          .concat(edits.flatMap((edit) => [`-${edit.oldText}`, `+${edit.newText}`]))
+          .join("\n");
+        return new Text(
+          diffTheme.fg("toolTitle", diffTheme.bold("replace_in_file")) +
+            "\n" +
+            renderCollapsibleDiffText(preview, diffTheme, isExpanded(options)),
+          0,
+          0,
+        );
+      },
       renderResult: renderFileToolResult,
     },
     {
       name: "apply_patch",
       label: "Apply Patch",
       description:
-        "Apply a text-only unified diff. Paths are scoped to the project root in on mode; in yolo mode absolute paths may reach anywhere on the host (matching native bash reach).",
+        "Preferred patch-native tool for reviewable change sets. Hunk lines are literal file text; do not JSON-escape quotes. Re-read before retry and use smaller failed hunks.",
       parameters: objectSchema({
         patch: stringSchema(),
       }),

@@ -268,6 +268,51 @@ describe("file tools", () => {
       expect(readFileSync(join(projectDir, "two.txt"), "utf-8")).toBe("two\nsecond\n");
     });
 
+    it("does not write earlier files when a later file fails", () => {
+      writeFileSync(join(projectDir, "one.txt"), "one\nold\n");
+      writeFileSync(join(projectDir, "two.txt"), "two\nold\n");
+
+      expect(() =>
+        tools.apply_patch({
+          patch: `--- a/one.txt
++++ b/one.txt
+@@ -2 +2 @@
+-old
++first
+--- a/two.txt
++++ b/two.txt
+@@ -2 +2 @@
+-missing
++second
+`,
+        }),
+      ).toThrow(/apply_patch failed|two\.txt/);
+      expect(readFileSync(join(projectDir, "one.txt"), "utf-8")).toBe("one\nold\n");
+    });
+
+    it("deletes an existing file with Begin Patch", () => {
+      writeFileSync(join(projectDir, "remove.txt"), "gone\n");
+      const result = tools.apply_patch({
+        patch: `*** Begin Patch
+*** Delete File: remove.txt
+*** End Patch
+`,
+      });
+      expect(result).toContain("Applied patch to 1 file");
+      expect(existsSync(join(projectDir, "remove.txt"))).toBe(false);
+    });
+
+    it("reports a missing delete target clearly", () => {
+      expect(() =>
+        tools.apply_patch({
+          patch: `*** Begin Patch
+*** Delete File: missing.txt
+*** End Patch
+`,
+        }),
+      ).toThrow(/delete target is missing|missing\.txt/i);
+    });
+
     it("reports clear hunk failure diagnostics", () => {
       writeFileSync(join(projectDir, "test.txt"), "line1\nline2\nline3\n");
 

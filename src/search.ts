@@ -56,9 +56,9 @@ const PI_TOOL_SEARCH_DESCRIPTIONS: Record<string, string> = {
   write:
     "Write an entire file. Best for new files or intentional complete rewrites; avoid for small edits because full-file rewrites can waste tokens and accidentally delete content.",
   replace_in_file:
-    "Exact search/replace file tool. Use for precise localized changes and replacements. oldText must match exactly once, replacements must be unique and non-overlapping, and nearby replacements should be merged. Use apply_patch for unified diffs.",
+    "Surgical fallback for one tiny unique edit. Use for precise localized changes; prefer apply_patch for reviewable change sets. oldText is exact, unique, and literal.",
   apply_patch:
-    "Apply a text-only unified diff patch. Paths are project-root scoped in on mode; yolo allows absolute paths anywhere. Useful for patch/diff-oriented edits and returns clear hunk failure diagnostics.",
+    "Preferred patch-native edit tool for reviewable change sets. Hunk lines are literal file text; do not JSON-escape quotes. Re-read before retry and submit only failed, smaller hunks.",
 };
 
 let index: MiniSearch<SearchDoc> | null = null;

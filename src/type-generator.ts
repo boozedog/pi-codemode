@@ -56,7 +56,7 @@ const fileToolDescriptors: Record<string, { description?: string; inputSchema: J
   },
   replace_in_file: {
     description:
-      "Replace text in a file using exact replacement semantics. Each oldText must match exactly one unique, non-overlapping region in the original file. Nearby replacements should be merged into one replacement. Use apply_patch for unified diffs.",
+      "Surgical fallback for tiny unique edits. Prefer apply_patch for reviewable change sets. Each oldText is exact, unique, and non-overlapping.",
     inputSchema: {
       type: "object",
       properties: {
@@ -89,7 +89,7 @@ const fileToolDescriptors: Record<string, { description?: string; inputSchema: J
   },
   apply_patch: {
     description:
-      "Apply a text-only unified diff (project-root scoped in on mode; unscoped in yolo). Use for patch/diff-oriented edits; hunk failures return diagnostics.",
+      "Preferred patch-native tool for reviewable change sets. Hunk lines are literal file text; do not JSON-escape quotes. Re-read before retry and use smaller failed hunks.",
     inputSchema: {
       type: "object",
       properties: {

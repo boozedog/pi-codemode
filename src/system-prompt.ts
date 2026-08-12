@@ -13,7 +13,7 @@ export function generateSystemPromptAddition(
   const modeGuidance =
     mode === "yolo"
       ? "In yolo mode, native bash is available and has broader host access. Prefer codemode for structured tool use and use bash for shell-heavy one-offs."
-      : "In normal codemode, use codemode workflows and top-level non-bash tools. The native bash tool is not exposed. Writes are restricted to the project root and go through the root-scoped patch tools (replace_in_file / apply_patch); native write/edit/bash are not exposed.";
+      : "In normal codemode, use codemode workflows and top-level non-bash tools. The native bash tool is not exposed. Prefer apply_patch as the patch-native UI for reviewable change sets; hunk lines are literal file text (do not JSON-escape quotes). Re-read before retry and send smaller failed hunks only. replace_in_file is a surgical fallback for tiny unique edits. Writes are restricted to the project root; native write/edit/bash are not exposed.";
   return `\
 ## Code Mode (${mode})
 
@@ -173,6 +173,8 @@ export function generateEditGuidance(): string {
   return `\
 ### Edit guidance
 - File mutation is patch-only and outside codemode guest code.
-- Use the top-level visible patch editing tool for unified diffs (project-root scoped in on mode; in yolo absolute paths may reach anywhere, matching bash).
+- Prefer apply_patch for any human-reviewable change set; patch is the UI and exact apply is the contract.
+- Hunk lines are literal file text; do not JSON-escape quotes inside hunks. Re-read before retry, and submit only failed smaller hunks.
+- Use replace_in_file only for tiny unique edits when a hunk is pure overhead.
 - Patch results should be rendered visibly in chat.`;
 }

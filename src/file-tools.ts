@@ -3,7 +3,7 @@
 // These are host-side implementations that use Node.js fs directly.
 // Path validation scopes operations to the project directory unless unrestricted (yolo).
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync, rmSync } from "node:fs";
 import { dirname, resolve, relative, isAbsolute, normalize, join, sep } from "node:path";
 
 /** Mutable path scope shared with the extension so mode flips take effect without re-registering tools. */
@@ -316,6 +316,7 @@ function findAllPositions(content: string, search: string): number[] {
 interface ParsedFilePatch {
   path: string;
   hunks: ParsedHunk[];
+  delete?: boolean;
 }
 
 interface ParsedHunk {
@@ -328,20 +329,54 @@ function applyUnifiedPatch(patch: string, scope: FileScope): string {
   const files = parsePatch(patch);
   if (files.length === 0) throw new Error("No file patches found in unified diff");
 
-  const diffs: string[] = [];
-  for (const file of files) {
-    const fullPath = validateAndResolvePath(file.path, scope);
+  const prepared: Array<{
+    file: ParsedFilePatch;
+    fullPath: string;
+    original: string;
+    updated: string;
+  }> = [];
+  const statuses: string[] = [];
+  // Resolve and validate every path before touching any file.
+  const resolved = files.map((file) => ({
+    file,
+    fullPath: validateAndResolvePath(file.path, scope),
+  }));
+  for (let index = 0; index < resolved.length; index++) {
+    const { file, fullPath } = resolved[index];
     const original = existsSync(fullPath) ? readFileSync(fullPath, "utf-8") : "";
-    const updated = applyFilePatch(original, file);
-    if (
-      updated === original &&
-      file.hunks.some((hunk) => hunk.lines.some((line) => /^[+-]/.test(line)))
-    ) {
-      throw new Error(`Patch for ${file.path} contained changes but left the file unchanged`);
+    try {
+      if (file.delete) {
+        if (!existsSync(fullPath)) throw new Error("delete target is missing");
+      }
+      const updated = file.delete ? "" : applyFilePatch(original, file);
+      if (
+        !file.delete &&
+        updated === original &&
+        file.hunks.some((h) => h.lines.some((l) => /^[+-]/.test(l)))
+      ) {
+        throw new Error(`Patch for ${file.path} contained changes but left the file unchanged`);
+      }
+      prepared.push({ file, fullPath, original, updated });
+      statuses.push(`✓ ${file.path} — ok in memory (not written)`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      statuses.push(`✗ ${file.path} — ${formatPatchFailure(message, file, original)}`);
+      for (const rest of resolved.slice(index + 1))
+        statuses.push(`○ ${rest.file.path} — not attempted`);
+      throw new Error(
+        `✗ apply_patch failed (${files.length} files in patch)\n${statuses.join("\n")}`,
+      );
     }
-    const dir = dirname(fullPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(fullPath, updated, "utf-8");
+  }
+
+  const diffs: string[] = [];
+  for (const { file, fullPath, original, updated } of prepared) {
+    if (file.delete) rmSync(fullPath);
+    else {
+      const dir = dirname(fullPath);
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      writeFileSync(fullPath, updated, "utf-8");
+    }
     diffs.push(createUnifiedDiff(file.path, original, updated));
   }
 
@@ -368,6 +403,12 @@ function parseBeginPatch(patch: string): ParsedFilePatch[] {
       files.push(current);
       continue;
     }
+    if (line.startsWith("*** Delete File: ")) {
+      current = { path: line.slice("*** Delete File: ".length).trim(), hunks: [], delete: true };
+      currentHunk = undefined;
+      files.push(current);
+      continue;
+    }
     if (line.startsWith("*** Update File: ")) {
       current = { path: line.slice("*** Update File: ".length).trim(), hunks: [] };
       files.push(current);
@@ -389,7 +430,7 @@ function parseBeginPatch(patch: string): ParsedFilePatch[] {
     }
   }
 
-  if (files.some((file) => file.hunks.length === 0)) {
+  if (files.some((file) => !file.delete && file.hunks.length === 0)) {
     throw new Error("No parseable hunks found in Begin Patch input");
   }
   return files;
@@ -412,7 +453,7 @@ function parseUnifiedPatch(patch: string): ParsedFilePatch[] {
     }
     const newPath = parsePatchPath(lines[i].slice(4));
     const path = newPath === "/dev/null" ? oldPath : newPath;
-    const file: ParsedFilePatch = { path, hunks: [] };
+    const file: ParsedFilePatch = { path, hunks: [], delete: newPath === "/dev/null" };
     i++;
 
     while (i < lines.length && !lines[i].startsWith("--- ")) {
@@ -433,7 +474,7 @@ function parseUnifiedPatch(patch: string): ParsedFilePatch[] {
       }
       file.hunks.push(hunk);
     }
-    if (file.hunks.length === 0) {
+    if (!file.delete && file.hunks.length === 0) {
       throw new Error(`No parseable hunks found for ${file.path}`);
     }
     files.push(file);
@@ -454,8 +495,15 @@ function applyFilePatch(original: string, patch: ParsedFilePatch): string {
   const result: string[] = [];
   let cursor = 0;
 
-  for (const hunk of patch.hunks) {
-    const start = findHunkStart(originalLines, hunk, cursor, patch.path, original);
+  for (let hunkIndex = 0; hunkIndex < patch.hunks.length; hunkIndex++) {
+    const hunk = patch.hunks[hunkIndex];
+    let start: number;
+    try {
+      start = findHunkStart(originalLines, hunk, cursor, patch.path, original);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`${message} [hunk ${hunkIndex + 1} cursor ${cursor}]`);
+    }
     if (start < cursor)
       throw new Error(
         `Hunk failed for ${patch.path} at -${hunk.oldStart},${hunk.oldCount}: overlaps previous hunk`,
@@ -470,7 +518,7 @@ function applyFilePatch(original: string, patch: ParsedFilePatch): string {
         if (originalLines[pos] !== text) {
           const nearby = nearbyLines(originalLines, pos);
           throw new Error(
-            `Hunk failed for ${patch.path} at -${hunk.oldStart},${hunk.oldCount}: expected ${JSON.stringify(text)} but found ${JSON.stringify(originalLines[pos] ?? "<EOF>")}; nearby ${nearby}`,
+            `Hunk failed for ${patch.path} at -${hunk.oldStart},${hunk.oldCount}: expected ${JSON.stringify(text)} but found ${JSON.stringify(originalLines[pos] ?? "<EOF>")}; nearby ${nearby} [hunk ${hunkIndex + 1} cursor ${pos}]`,
           );
         }
         if (marker === " ") result.push(text);
@@ -552,6 +600,35 @@ function nearbyLines(lines: string[], index: number): string {
     .slice(start, end)
     .map((line, offset) => `${start + offset + 1}:${JSON.stringify(line)}`)
     .join(" | ");
+}
+
+function formatPatchFailure(message: string, hunk: ParsedFilePatch, original: string): string {
+  const reason = /ambiguous/i.test(message)
+    ? "ambiguous"
+    : /CRLF|line ending/i.test(message)
+      ? "CRLF"
+      : /overlap/i.test(message)
+        ? "overlap"
+        : /not found|expected/i.test(message)
+          ? "context not found"
+          : "parse";
+  const explicitHunk = message.match(/\[hunk (\d+) cursor (\d+)\]/);
+  const hunkNumber = explicitHunk
+    ? Number(explicitHunk[1])
+    : Math.max(
+        1,
+        hunk.hunks.findIndex((item) => message.includes(`-${item.oldStart},${item.oldCount}`)) + 1,
+      );
+  const failedHunk = hunk.hunks[hunkNumber - 1] ?? hunk.hunks[0];
+  const sought =
+    failedHunk?.lines.filter((line) => /^[ -]/.test(line)).map((line) => line.slice(1)) ?? [];
+  const lines = original === "" ? [] : original.replace(/\n$/, "").split("\n");
+  const center = explicitHunk
+    ? Number(explicitHunk[2])
+    : Math.max(0, (failedHunk?.oldStart ?? 1) - 1);
+  const nearbyStart = Math.max(0, center - 2);
+  const nearby = lines.slice(nearbyStart, center + 3);
+  return `hunk ${hunkNumber}: ${reason}: ${message}\n  sought:\n${sought.map((line, i) => `    ${i + 1}: ${JSON.stringify(line)}`).join("\n")}\n  nearby:\n${nearby.map((line, i) => `    ${nearbyStart + i + 1}: ${JSON.stringify(line)}`).join("\n")}`;
 }
 
 function formatDiagnosticText(text: string): string {
