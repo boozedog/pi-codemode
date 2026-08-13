@@ -38,6 +38,8 @@ export interface McpClientOptions {
   projectDir?: string;
   homeDir?: string;
   cachePath?: string;
+  /** Invoked when a connected server emits `notifications/tools/list_changed`. */
+  onToolsListChanged?: (serverName: string) => void;
 }
 
 export interface McpClient {
@@ -46,6 +48,10 @@ export interface McpClient {
   call(namespace: string, toolName: string, args?: Record<string, unknown>): Promise<string>;
   warmCache(): Promise<McpServerInfo[]>;
   listServers(): string[];
+  /** Re-read MCP config and reconcile added/removed/changed servers. */
+  refresh(config?: CodemodeConfig): Promise<McpServerInfo[]>;
+  /** Re-list tools for a still-connected server (e.g. on tools/list_changed). */
+  refreshServerTools(serverName: string): Promise<McpServerInfo[]>;
   shutdown(): Promise<void>;
   readonly available: boolean;
 }
@@ -154,12 +160,12 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
   const projectDir = options?.projectDir ?? process.cwd();
   const homeDir = options?.homeDir ?? homedir();
   const cachePath = options?.cachePath ?? defaultCachePath(homeDir);
-  const configured = {
+  let configured = {
     ...loadMcpServers(projectDir, homeDir),
     ...(options?.config?.mcp?.servers as Record<string, McpServerConfig> | undefined),
     ...options?.servers,
   };
-  const serverNames = Object.keys(configured);
+  let serverNames = Object.keys(configured);
   const cache = loadMetadataCache(cachePath);
   const servers = new Map<string, McpServerInfo>();
   const namespaceToServer = new Map<string, string>();
@@ -204,6 +210,15 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
     try {
       client = await openClient(def, projectDir);
       const result = await client.listTools();
+      // If the server was removed or changed while connecting (e.g. a refresh
+      // landed mid-connect), discard this now-stale connection.
+      if (
+        !configured[serverName] ||
+        computeServerHash(configured[serverName]) !== computeServerHash(def)
+      ) {
+        await client.close().catch(() => undefined);
+        return;
+      }
       const tools = (result.tools ?? []).map((tool) => ({
         name: tool.name,
         description: tool.description,
@@ -211,6 +226,9 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
       }));
       servers.set(namespace, { serverName, namespace, tools });
       connections.set(serverName, client);
+      client.setNotificationHandler("notifications/tools/list_changed", () => {
+        options?.onToolsListChanged?.(serverName);
+      });
       persistServerCache(cachePath, cache, serverName, def, tools);
     } catch (err) {
       await client?.close().catch(() => undefined);
@@ -238,6 +256,80 @@ export function createMcpClient(options?: McpClientOptions): McpClient {
     async ensureServerConnected(namespace) {
       await ensureConnected(namespace);
       return servers.get(namespace)!;
+    },
+    async refresh(config) {
+      const next = {
+        ...loadMcpServers(projectDir, homeDir),
+        ...(config?.mcp?.servers as Record<string, McpServerConfig> | undefined),
+        ...options?.servers,
+      };
+      const nextNames = Object.keys(next);
+
+      // Removed servers: close the connection and drop all state.
+      for (const name of serverNames) {
+        if (name in next) continue;
+        const client = connections.get(name);
+        if (client) {
+          await client.close().catch(() => undefined);
+          connections.delete(name);
+        }
+        const ns = toNamespace(name);
+        if (servers.has(ns)) {
+          servers.delete(ns);
+          namespaceToServer.delete(ns);
+        }
+      }
+
+      // Changed servers: close the connection, invalidate the stale cache,
+      // and reset tools so the server reconnects lazily with fresh metadata.
+      for (const name of serverNames) {
+        if (!(name in next)) continue;
+        const def = configured[name];
+        if (!def || computeServerHash(next[name]) === computeServerHash(def)) continue;
+        const client = connections.get(name);
+        if (client) {
+          await client.close().catch(() => undefined);
+          connections.delete(name);
+        }
+        const ns = toNamespace(name);
+        if (servers.has(ns)) servers.set(ns, { serverName: name, namespace: ns, tools: [] });
+        delete cache.servers[name];
+      }
+
+      // Added servers: register for lazy connection.
+      for (const name of nextNames) {
+        if (name in configured) continue;
+        const namespace = toNamespace(name);
+        namespaceToServer.set(namespace, name);
+        const def = next[name];
+        const cached = def ? cache.servers[name] : undefined;
+        servers.set(namespace, {
+          serverName: name,
+          namespace,
+          tools: cached && def && cached.configHash === computeServerHash(def) ? cached.tools : [],
+        });
+      }
+
+      configured = next;
+      serverNames = nextNames;
+      return [...servers.values()];
+    },
+    async refreshServerTools(serverName) {
+      const def = configured[serverName];
+      if (!def) return [...servers.values()];
+      const namespace = toNamespace(serverName);
+      await ensureConnected(namespace);
+      const client = connections.get(serverName);
+      if (!client) return [...servers.values()];
+      const result = await client.listTools();
+      const tools = (result.tools ?? []).map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      }));
+      servers.set(namespace, { serverName, namespace, tools });
+      persistServerCache(cachePath, cache, serverName, def, tools);
+      return [...servers.values()];
     },
     async call(namespace, toolName, args) {
       await ensureConnected(namespace);

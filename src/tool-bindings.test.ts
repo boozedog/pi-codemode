@@ -149,6 +149,8 @@ describe("createToolBindings MCP discovery", () => {
         warmCache: async () => mcpServers,
         ensureServerConnected: async () => mcpServers[0],
         call,
+        refresh: async () => mcpServers,
+        refreshServerTools: async () => mcpServers,
         shutdown: async () => undefined,
       },
     });
@@ -204,6 +206,8 @@ describe("createToolBindings MCP discovery", () => {
           ],
         }),
         call: async () => "",
+        refresh: async () => [uncached],
+        refreshServerTools: async () => [uncached],
         shutdown: async () => undefined,
       },
     });

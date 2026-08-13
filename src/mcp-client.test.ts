@@ -29,6 +29,7 @@ afterEach(async () => {
 const fixture = `
 const readline = require("readline");
 const rl = readline.createInterface({ input: process.stdin });
+const toolName = process.env.FIXTURE_TOOL || "search-issues";
 rl.on("line", (line) => {
   const request = JSON.parse(line);
   if (request.method === "initialize") {
@@ -36,7 +37,7 @@ rl.on("line", (line) => {
   } else if (request.method === "notifications/initialized") {
     return;
   } else if (request.method === "tools/list") {
-    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { tools: [{ name: "search-issues", description: "Search", inputSchema: { type: "object" } }] } }) + "\\n");
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { tools: [{ name: toolName, description: "Search", inputSchema: { type: "object" } }] } }) + "\\n");
   } else if (request.method === "tools/call") {
     const isError = request.params?.arguments?.fail === true;
     process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text: isError ? "missing query" : "ok" }], isError } }) + "\\n");
@@ -46,6 +47,39 @@ rl.on("line", (line) => {
 
 function stdioServer() {
   return { command: process.execPath, args: ["-e", fixture] };
+}
+
+// Fixture that reads its tool name from a file on every tools/list call, so a
+// test can change the advertised tool list without a config-hash change.
+const fileFixture = `
+const fs = require("fs");
+const readline = require("readline");
+const rl = readline.createInterface({ input: process.stdin });
+const toolFile = process.env.FIXTURE_TOOL_FILE;
+function currentTool() {
+  try { return fs.readFileSync(toolFile, "utf8").trim() || "search-issues"; }
+  catch { return "search-issues"; }
+}
+rl.on("line", (line) => {
+  const request = JSON.parse(line);
+  if (request.method === "initialize") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fixture", version: "1" } } }) + "\\n");
+  } else if (request.method === "notifications/initialized") {
+    return;
+  } else if (request.method === "tools/list") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { tools: [{ name: currentTool(), description: "Search", inputSchema: { type: "object" } }] } }) + "\\n");
+  } else if (request.method === "tools/call") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text: "ok" }] } }) + "\\n");
+  }
+});
+`;
+
+function fileServer(toolFile: string) {
+  return {
+    command: process.execPath,
+    args: ["-e", fileFixture],
+    env: { FIXTURE_TOOL_FILE: toolFile },
+  };
 }
 
 async function isolatedClient(extra: Parameters<typeof createMcpClient>[0] = {}) {
@@ -317,5 +351,163 @@ describe("McpClient", () => {
       uri: `file://${projectDir}`,
       name: "project",
     });
+  });
+});
+
+describe("McpClient refresh", () => {
+  test("refresh adds newly configured servers from .mcp.json", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    const homeDir = await tempDir("codemode-mcp-home-");
+    const cachePath = join(projectDir, "mcp-metadata.json");
+    await writeFile(
+      join(projectDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { github: stdioServer() } }),
+    );
+    const client = createMcpClient({ projectDir, homeDir, cachePath });
+    expect(client.listServers()).toEqual(["github"]);
+
+    await writeFile(
+      join(projectDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { github: stdioServer(), slack: stdioServer() } }),
+    );
+    const refreshed = await client.refresh();
+    expect(client.listServers()).toEqual(["github", "slack"]);
+    expect(refreshed.map((s) => s.namespace)).toContain("slack");
+    await client.shutdown();
+  });
+
+  test("refresh removes deleted servers and closes their connection", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    const homeDir = await tempDir("codemode-mcp-home-");
+    const cachePath = join(projectDir, "mcp-metadata.json");
+    await writeFile(
+      join(projectDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { github: stdioServer(), slack: stdioServer() } }),
+    );
+    const client = createMcpClient({ projectDir, homeDir, cachePath });
+    await client.call("github", "search_issues", {});
+    expect(client.listServers()).toEqual(["github", "slack"]);
+
+    await writeFile(
+      join(projectDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { github: stdioServer() } }),
+    );
+    const refreshed = await client.refresh();
+    expect(client.listServers()).toEqual(["github"]);
+    expect(refreshed.map((s) => s.namespace)).not.toContain("slack");
+    await client.shutdown();
+  });
+
+  test("refresh invalidates cache for changed servers and reconnects lazily", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    const homeDir = await tempDir("codemode-mcp-home-");
+    const cachePath = join(projectDir, "mcp-metadata.json");
+    const def = stdioServer();
+    await writeFile(join(projectDir, ".mcp.json"), JSON.stringify({ mcpServers: { github: def } }));
+    const client = createMcpClient({ projectDir, homeDir, cachePath });
+    await client.call("github", "search_issues", {});
+    expect(client.getServers().find((s) => s.namespace === "github")?.tools.length).toBe(1);
+
+    const changed = { ...def, env: { FIXTURE_TOOL: "list-issues" } };
+    await writeFile(
+      join(projectDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { github: changed } }),
+    );
+    const refreshed = await client.refresh();
+    expect(refreshed.find((s) => s.namespace === "github")?.tools).toEqual([]);
+
+    await expect(client.call("github", "list-issues", {})).resolves.toBe("ok");
+    expect(client.getServers().find((s) => s.namespace === "github")?.tools[0]?.name).toBe(
+      "list-issues",
+    );
+    await client.shutdown();
+  });
+
+  test("refresh preserves an in-flight call on an unchanged server", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    const homeDir = await tempDir("codemode-mcp-home-");
+    const cachePath = join(projectDir, "mcp-metadata.json");
+    await writeFile(
+      join(projectDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { github: stdioServer() } }),
+    );
+    const client = createMcpClient({ projectDir, homeDir, cachePath });
+    const [callResult, refreshed] = await Promise.all([
+      client.call("github", "search_issues", {}),
+      client.refresh(),
+    ]);
+    expect(callResult).toBe("ok");
+    expect(refreshed.map((s) => s.namespace)).toContain("github");
+    await client.shutdown();
+  });
+
+  test("refresh removes a server whose name differs from its namespace", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    const homeDir = await tempDir("codemode-mcp-home-");
+    const cachePath = join(projectDir, "mcp-metadata.json");
+    await writeFile(
+      join(projectDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { "github-mcp": stdioServer() } }),
+    );
+    const client = createMcpClient({ projectDir, homeDir, cachePath });
+    await client.call("github", "search_issues", {});
+    expect(client.getServers().map((s) => s.namespace)).toContain("github");
+
+    await writeFile(join(projectDir, ".mcp.json"), JSON.stringify({ mcpServers: {} }));
+    const refreshed = await client.refresh();
+    expect(client.listServers()).toEqual([]);
+    expect(refreshed.map((s) => s.namespace)).not.toContain("github");
+    await client.shutdown();
+  });
+
+  test("refresh invalidates cache for a changed server whose name differs from its namespace", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    const homeDir = await tempDir("codemode-mcp-home-");
+    const cachePath = join(projectDir, "mcp-metadata.json");
+    const def = stdioServer();
+    await writeFile(
+      join(projectDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { "github-mcp": def } }),
+    );
+    const client = createMcpClient({ projectDir, homeDir, cachePath });
+    await client.call("github", "search_issues", {});
+    expect(client.getServers().find((s) => s.namespace === "github")?.tools.length).toBe(1);
+
+    const changed = { ...def, env: { FIXTURE_TOOL: "list-issues" } };
+    await writeFile(
+      join(projectDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { "github-mcp": changed } }),
+    );
+    const refreshed = await client.refresh();
+    expect(refreshed.find((s) => s.namespace === "github")?.tools).toEqual([]);
+
+    await expect(client.call("github", "list-issues", {})).resolves.toBe("ok");
+    expect(client.getServers().find((s) => s.namespace === "github")?.tools[0]?.name).toBe(
+      "list-issues",
+    );
+    await client.shutdown();
+  });
+
+  test("refreshServerTools re-lists tools on a still-connected server", async () => {
+    const projectDir = await tempDir("codemode-mcp-project-");
+    const homeDir = await tempDir("codemode-mcp-home-");
+    const cachePath = join(projectDir, "mcp-metadata.json");
+    const toolFile = join(projectDir, "tool-name.txt");
+    await writeFile(toolFile, "search-issues");
+    await writeFile(
+      join(projectDir, ".mcp.json"),
+      JSON.stringify({ mcpServers: { "github-mcp": fileServer(toolFile) } }),
+    );
+    const client = createMcpClient({ projectDir, homeDir, cachePath });
+    await client.call("github", "search_issues", {});
+    expect(client.getServers().find((s) => s.namespace === "github")?.tools[0]?.name).toBe(
+      "search-issues",
+    );
+
+    await writeFile(toolFile, "list-issues");
+    const refreshed = await client.refreshServerTools("github-mcp");
+    const github = refreshed.find((s) => s.namespace === "github");
+    expect(github?.tools.map((t) => t.name)).toEqual(["list-issues"]);
+    await client.shutdown();
   });
 });

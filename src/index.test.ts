@@ -7,40 +7,91 @@ import { join } from "node:path";
 type TestConfig = {
   mode: "off" | "on" | "yolo";
   executor: { type: "quickjs"; timeoutMs: number };
+  cli?: Record<string, { backend: "host"; operations: string[] }>;
 };
 
-const { loadConfig, createMcpClient, shutdown, warmCache, getServers, executeCode } = vi.hoisted(
-  () => {
-    const shutdown = vi.fn(async () => {});
-    const warmCache = vi.fn(async () => []);
-    const getServers = vi.fn(() => []);
-    return {
-      loadConfig: vi.fn<() => TestConfig>(() => ({
-        mode: "yolo",
-        executor: { type: "quickjs", timeoutMs: 1234 },
-      })),
-      createMcpClient: vi.fn(() => ({ getServers, warmCache, shutdown })),
-      shutdown,
-      warmCache,
-      getServers,
-      executeCode: vi.fn(),
-    };
-  },
-);
+type McpClientMock = {
+  getServers: ReturnType<typeof vi.fn>;
+  listServers: ReturnType<typeof vi.fn>;
+  warmCache: ReturnType<typeof vi.fn>;
+  shutdown: ReturnType<typeof vi.fn>;
+  refresh: ReturnType<typeof vi.fn>;
+  refreshServerTools: ReturnType<typeof vi.fn>;
+};
+
+type McpClientOptions = { onToolsListChanged?: (serverName: string) => void };
+
+type ExecuteToolOptions = { getTypeDefs?: () => string };
+
+const {
+  loadConfig,
+  createMcpClient,
+  shutdown,
+  warmCache,
+  getServers,
+  listServers,
+  refresh,
+  refreshServerTools,
+  executeCode,
+  createExecuteTool,
+  generateBuiltinTypeDefs,
+} = vi.hoisted(() => {
+  const shutdown = vi.fn(async () => {});
+  const warmCache = vi.fn(async () => []);
+  const getServers = vi.fn(() => []);
+  const listServers = vi.fn<() => string[]>(() => []);
+  const refresh = vi.fn<
+    () => Promise<Array<{ serverName: string; namespace: string; tools: unknown[] }>>
+  >(async () => []);
+  const refreshServerTools = vi.fn<
+    () => Promise<Array<{ serverName: string; namespace: string; tools: unknown[] }>>
+  >(async () => []);
+  const createExecuteTool = vi.fn((opts: ExecuteToolOptions) => ({
+    name: "codemode",
+    description: "Execute TypeScript against codemode tools",
+    getTypeDefs: opts.getTypeDefs,
+  }));
+  return {
+    loadConfig: vi.fn<() => TestConfig>(() => ({
+      mode: "yolo",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    })),
+    createMcpClient: vi.fn(
+      (_opts: McpClientOptions): McpClientMock => ({
+        getServers,
+        listServers,
+        warmCache,
+        shutdown,
+        refresh,
+        refreshServerTools,
+      }),
+    ),
+    shutdown,
+    warmCache,
+    getServers,
+    listServers,
+    refresh,
+    refreshServerTools,
+    executeCode: vi.fn(),
+    createExecuteTool,
+    generateBuiltinTypeDefs: vi.fn(() => "declare const codemode: {};"),
+  };
+});
 
 vi.mock("./config.js", () => ({ loadConfig }));
 vi.mock("./mcp-client.js", () => ({ createMcpClient }));
 vi.mock("./execute-tool.js", () => ({
-  createExecuteTool: vi.fn(() => ({
-    name: "codemode",
-    description: "Execute TypeScript against codemode tools",
-  })),
+  createExecuteTool,
   executeCode,
 }));
 vi.mock("./type-generator.js", () => ({
-  generateBuiltinTypeDefs: vi.fn(() => "declare const codemode: {};"),
-  generateMcpServerTypeDefs: vi.fn(() => ""),
-  generateMcpSummaryForPrompt: vi.fn(() => ""),
+  generateBuiltinTypeDefs,
+  generateMcpServerTypeDefs: vi.fn((servers: Array<{ namespace: string }>) =>
+    servers.map((s) => `mcp.${s.namespace}`).join("\n"),
+  ),
+  generateMcpSummaryForPrompt: vi.fn((servers: Array<{ namespace: string }>) =>
+    servers.map((s) => `mcp.${s.namespace}`).join("\n"),
+  ),
   generateParamSummary: vi.fn(() => "summary"),
 }));
 
@@ -85,9 +136,19 @@ describe("codemodeExtension", () => {
       executor: { type: "quickjs", timeoutMs: 1234 },
     });
     createMcpClient.mockReset();
-    createMcpClient.mockImplementation(() => ({ getServers, warmCache, shutdown }));
+    createMcpClient.mockImplementation(() => ({
+      getServers,
+      listServers,
+      warmCache,
+      shutdown,
+      refresh,
+      refreshServerTools,
+    }));
     getServers.mockReturnValue([]);
+    listServers.mockReturnValue([]);
     warmCache.mockResolvedValue([]);
+    refresh.mockResolvedValue([]);
+    refreshServerTools.mockResolvedValue([]);
     executeCode.mockReset();
   });
 
@@ -834,5 +895,100 @@ describe("codemodeExtension", () => {
     await handlers.get("session_shutdown")?.();
 
     expect(shutdown).toHaveBeenCalled();
+  });
+
+  test("/codemode refresh re-reads config and MCP servers and regenerates declarations", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, commands, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+    await handlers.get("session_start")?.({}, ctx);
+
+    const getTypeDefs = createExecuteTool.mock.calls[0]?.[0]?.getTypeDefs;
+    expect(getTypeDefs).toBeDefined();
+    expect(getTypeDefs?.()).not.toContain("mcp.newserver");
+
+    refresh.mockImplementation(async () => {
+      listServers.mockReturnValue(["newserver"]);
+      return [
+        {
+          serverName: "newserver",
+          namespace: "newserver",
+          tools: [{ name: "do_thing", inputSchema: { type: "object" } }],
+        },
+      ];
+    });
+    loadConfig.mockReturnValue({
+      mode: "on",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+      cli: { git: { backend: "host", operations: ["status"] } },
+    });
+
+    await commands.get("codemode")?.handler("refresh", ctx);
+
+    expect(refresh).toHaveBeenCalledWith(expect.objectContaining({ mode: "on" }));
+    expect(getTypeDefs?.()).toContain("mcp.newserver");
+    // CLI capability changes must flow into regenerated declarations.
+    expect(generateBuiltinTypeDefs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cli: { git: { backend: "host", operations: ["status"] } },
+      }),
+    );
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("added MCP server newserver"),
+      "info",
+    );
+  });
+
+  test("/codemode refresh reports failures via notify without aborting", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, commands, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+    await handlers.get("session_start")?.({}, ctx);
+
+    refresh.mockRejectedValue(new Error("mcp refresh boom"));
+
+    await commands.get("codemode")?.handler("refresh", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("mcp refresh boom"),
+      "warning",
+    );
+    expect(shutdown).not.toHaveBeenCalled();
+  });
+
+  test("/codemode refresh does not shut down the MCP client (in-flight preserved)", async () => {
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, commands, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+    await handlers.get("session_start")?.({}, ctx);
+
+    await commands.get("codemode")?.handler("refresh", ctx);
+
+    expect(refresh).toHaveBeenCalled();
+    expect(shutdown).not.toHaveBeenCalled();
+  });
+
+  test("MCP tools/list_changed notification triggers a debounced tool re-list", async () => {
+    vi.useFakeTimers();
+    try {
+      const { default: codemodeExtension } = await import("./index.js");
+      const { pi, handlers, ctx } = createPiMock();
+      codemodeExtension(pi as never);
+      await handlers.get("session_start")?.({}, ctx);
+
+      const onToolsListChanged = createMcpClient.mock.calls[0]?.[0]?.onToolsListChanged;
+      expect(onToolsListChanged).toBeDefined();
+
+      onToolsListChanged?.("github-mcp");
+      onToolsListChanged?.("github-mcp");
+      expect(refreshServerTools).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(600);
+      expect(refreshServerTools).toHaveBeenCalledTimes(1);
+      expect(refreshServerTools).toHaveBeenCalledWith("github-mcp");
+      expect(refresh).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

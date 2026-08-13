@@ -42,3 +42,6 @@ temp/
 
 # Pi-specific (project-local config/overrides — never commit)
 .pi/
+
+# Deepsec scanning workspace (local, per-repo; never commit)
+.deepsec/

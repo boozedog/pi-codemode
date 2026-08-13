@@ -41,6 +41,12 @@ export interface ExecuteToolOptions {
   /** TypeScript type definitions for the tool API */
   typeDefs: string;
   /**
+   * Getter for the current type definitions. When provided, it is consulted on
+   * every execute() call so declarations can be regenerated after a refresh
+   * without recreating the tool. Takes precedence over the static `typeDefs`.
+   */
+  getTypeDefs?: () => string;
+  /**
    * Static tool bindings. Prefer `getBindings` so each call receives
    * the host AbortSignal and onUpdate callback.
    */
@@ -62,7 +68,8 @@ export interface ExecuteToolOptions {
  * Create the codemode tool definition.
  */
 export function createExecuteTool(options: ExecuteToolOptions): ToolDefinition {
-  const { typeDefs, bindings, getBindings, timeout, maxOutputSize, executor } = options;
+  const { typeDefs, getTypeDefs, bindings, getBindings, timeout, maxOutputSize, executor } =
+    options;
   if (!bindings && !getBindings) {
     throw new Error("createExecuteTool requires bindings or getBindings");
   }
@@ -121,7 +128,8 @@ Return the final value you want in the result. Prefer return over print for fina
       const callCwd = typeof ctx.cwd === "string" ? ctx.cwd : process.cwd();
       const callBindings =
         getBindings?.({ signal, onUpdate, cwd: callCwd, mode: ctx.mode }) ?? bindings!;
-      const result = await executeCode(params.code, typeDefs, callBindings, {
+      const currentTypeDefs = getTypeDefs?.() ?? typeDefs;
+      const result = await executeCode(params.code, currentTypeDefs, callBindings, {
         timeout,
         maxOutputSize,
         signal,

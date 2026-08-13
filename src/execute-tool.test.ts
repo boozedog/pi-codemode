@@ -481,4 +481,43 @@ declare const codemode: { progress(message: string): void };
     expect(result.isError).not.toBe(true);
     expect(result.content?.[0]?.text).toContain("42");
   });
+
+  test("getTypeDefs is consulted on every execute call and overrides static typeDefs", async () => {
+    let current =
+      "declare function read(args: { path: string }): Promise<string>;\ndeclare const codemode: { read(args: { path: string }): Promise<string>; };";
+    const tool = createExecuteTool({
+      typeDefs: current,
+      getTypeDefs: () => current,
+      bindings: {
+        ...bindings,
+        read: async () => "file-content",
+        new_tool: async () => "file-content",
+      },
+      executor: { kind: "quickjs" },
+    });
+
+    const first = await tool.execute!(
+      "id-3",
+      { code: 'return await read({ path: "a.txt" });' },
+      undefined,
+      () => {},
+      {} as never,
+    );
+    expect(first.isError).not.toBe(true);
+    expect(first.content?.[0]?.text).toBe("file-content");
+
+    // Regenerate declarations (e.g. after a refresh) and confirm the next call
+    // picks up the new type surface: `codemode.new_tool` is only legal after refresh.
+    current =
+      "declare function read(args: { path: string }): Promise<string>;\ndeclare const codemode: { read(args: { path: string }): Promise<string>; new_tool(args: {}): Promise<string>; };";
+    const second = await tool.execute!(
+      "id-4",
+      { code: "return await codemode.new_tool({});" },
+      undefined,
+      () => {},
+      {} as never,
+    );
+    expect(second.isError).not.toBe(true);
+    expect(second.content?.[0]?.text).toBe("file-content");
+  });
 });

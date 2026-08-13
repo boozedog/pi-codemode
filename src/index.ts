@@ -63,6 +63,11 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   let mcpClient: McpClient | undefined;
   let mcpServers: McpServerInfo[] = [];
   let handoffStarted = false;
+  /** Latest session context, used by the debounced MCP list_changed refresh. */
+  let activeCtx: ExtensionContext | undefined;
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Guards against overlapping refreshSession() calls. */
+  let refreshing = false;
   /** Startup problems to surface via UI once session_start provides a context. */
   const startupWarnings: string[] = [];
 
@@ -83,7 +88,11 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
   // --- Load MCP server info ---
   try {
-    mcpClient = createMcpClient({ config, enrichError: generateParamSummary });
+    mcpClient = createMcpClient({
+      config,
+      enrichError: generateParamSummary,
+      onToolsListChanged: scheduleToolsRefresh,
+    });
     mcpServers = mcpClient.getServers();
     void mcpClient
       .warmCache()
@@ -105,10 +114,10 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   }
 
   // --- Build type definitions ---
-  const builtinTypeDefs = generateBuiltinTypeDefs({ cli: config.cli });
-  const mcpTypeDefs = generateMcpServerTypeDefs(mcpServers);
-  const typeCheckerTypeDefs = builtinTypeDefs + "\n" + mcpTypeDefs;
-  const mcpSummary = generateMcpSummaryForPrompt(mcpServers);
+  let builtinTypeDefs = generateBuiltinTypeDefs({ cli: config.cli });
+  let mcpTypeDefs = generateMcpServerTypeDefs(mcpServers);
+  let typeCheckerTypeDefs = builtinTypeDefs + "\n" + mcpTypeDefs;
+  let mcpSummary = generateMcpSummaryForPrompt(mcpServers);
 
   // --- Create tool bindings factory ---
   function getBindings(
@@ -155,6 +164,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
   const executeTool = createExecuteTool({
     typeDefs: typeCheckerTypeDefs,
+    getTypeDefs: () => typeCheckerTypeDefs,
     getBindings: ({ signal, onUpdate, cwd, mode }) =>
       getBindings(cwd ?? process.cwd(), signal, onUpdate, mode),
     timeout: config.executor?.timeoutMs ?? 120_000,
@@ -166,6 +176,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Session lifecycle ---
 
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
+    activeCtx = ctx;
     const requestedJob = pi.getFlag("run");
     if (typeof requestedJob === "string" && requestedJob.trim()) {
       const code = await runJob(requestedJob.trim(), ctx);
@@ -198,6 +209,10 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Shutdown ---
 
   pi.on("session_shutdown", async () => {
+    if (refreshTimer) {
+      clearTimeout(refreshTimer);
+      refreshTimer = undefined;
+    }
     if (mcpClient) {
       await mcpClient.shutdown();
     }
@@ -219,15 +234,21 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- Toggle command ---
 
   pi.registerCommand("codemode", {
-    description: "Set code mode: on, yolo, off (bare toggles off <-> on)",
+    description:
+      "Set code mode: on, yolo, off (bare toggles off <-> on); refresh reloads config and MCP tools",
     handler: async (args: string, ctx: ExtensionContext) => {
       // Pi passes the raw text after `/codemode` as one string, e.g. "yolo".
-      const requested = args.trim().split(/\s+/).find(Boolean) as CodemodeMode | undefined;
-      if (requested && !["off", "on", "yolo"].includes(requested)) {
-        ctx.ui.notify("Usage: /codemode [on|yolo|off]", "warning");
+      const requested = args.trim().split(/\s+/).find(Boolean);
+      if (requested === "refresh" || requested === "reload") {
+        await refreshSession(ctx);
         return;
       }
-      applyMode(requested ?? (currentMode === "off" ? "on" : "off"), ctx);
+      const mode = requested as CodemodeMode | undefined;
+      if (mode && !["off", "on", "yolo"].includes(mode)) {
+        ctx.ui.notify("Usage: /codemode [on|yolo|off|refresh]", "warning");
+        return;
+      }
+      applyMode(mode ?? (currentMode === "off" ? "on" : "off"), ctx);
     },
   });
 
@@ -246,6 +267,113 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   });
 
   // --- Helpers ---
+
+  /**
+   * Debounce MCP `notifications/tools/list_changed` into a single tool re-list.
+   */
+  function scheduleToolsRefresh(serverName: string) {
+    if (refreshTimer) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      refreshTimer = undefined;
+      if (activeCtx) void refreshToolsForServer(serverName, activeCtx);
+    }, 500);
+  }
+
+  /**
+   * Re-list tools for a still-connected server and regenerate declarations.
+   */
+  async function refreshToolsForServer(serverName: string, ctx: ExtensionContext): Promise<void> {
+    if (!mcpClient) return;
+    try {
+      mcpServers = await mcpClient.refreshServerTools(serverName);
+      regenerateDeclarations();
+      ctx.ui.notify(`Codemode refreshed tools for ${serverName}`, "info");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      ctx.ui.notify(`Codemode tool refresh failed for ${serverName}: ${message}`, "warning");
+    }
+  }
+
+  /**
+   * Regenerate type declarations, prompt summary, and the search index from the
+   * current `mcpServers` and `config`. Shared by config refresh and tool re-list.
+   */
+  function regenerateDeclarations() {
+    const nextBuiltin = generateBuiltinTypeDefs({ cli: config.cli });
+    const nextMcp = generateMcpServerTypeDefs(mcpServers);
+    builtinTypeDefs = nextBuiltin;
+    mcpTypeDefs = nextMcp;
+    typeCheckerTypeDefs = nextBuiltin + "\n" + nextMcp;
+    mcpSummary = generateMcpSummaryForPrompt(mcpServers);
+    buildSearchIndex(
+      pi.getAllTools().map((t) => ({ name: t.name, description: t.description })),
+      mcpServers,
+      config.cli,
+    );
+  }
+
+  /**
+   * Re-read config and MCP metadata, reconcile servers, regenerate declarations,
+   * rebuild the search index, and report the resulting capability summary.
+   * In-flight executions keep their already-created bindings and are not aborted.
+   * Note: a call already in flight on a server that is removed or changed by this
+   * refresh may fail, because that server's connection is closed to pick up the
+   * new config. Calls on unchanged servers are unaffected.
+   */
+  async function refreshSession(ctx: ExtensionContext): Promise<void> {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      const failures: string[] = [];
+      const changes: string[] = [];
+
+      // 1. Re-read codemode config.
+      let nextConfig: CodemodeConfig;
+      try {
+        nextConfig = loadConfig();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        failures.push(`config: ${message}`);
+        nextConfig = config;
+      }
+
+      // 2. Reconcile MCP servers (added/removed/changed).
+      if (mcpClient) {
+        try {
+          const before = new Set(mcpClient.listServers());
+          mcpServers = await mcpClient.refresh(nextConfig);
+          const after = new Set(mcpClient.listServers());
+          for (const name of after) if (!before.has(name)) changes.push(`added MCP server ${name}`);
+          for (const name of before)
+            if (!after.has(name)) changes.push(`removed MCP server ${name}`);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          failures.push(`mcp: ${message}`);
+        }
+      }
+
+      // 3. Commit the new config, then regenerate declarations and the index.
+      config = nextConfig;
+      regenerateDeclarations();
+
+      // 4. Report the capability summary (or failures).
+      const toolCount = mcpServers.reduce((n, s) => n + s.tools.length, 0);
+      const summary = [
+        `Codemode refreshed: ${mcpServers.length} MCP server(s), ${toolCount} tool(s)`,
+        ...changes,
+      ].join("\n");
+      if (failures.length > 0) {
+        ctx.ui.notify(
+          `Codemode refresh completed with errors:\n${failures.join("\n")}\n${summary}`,
+          "warning",
+        );
+      } else {
+        ctx.ui.notify(summary, "info");
+      }
+    } finally {
+      refreshing = false;
+    }
+  }
 
   async function runJob(input: string, ctx: ExtensionContext): Promise<number> {
     try {
