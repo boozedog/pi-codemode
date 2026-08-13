@@ -6,9 +6,8 @@ import {
   newQuickJSWASMModuleFromVariant,
   shouldInterruptAfterDeadline,
 } from "quickjs-emscripten-core";
+import { createHostFnResolver } from "./resolve-host-fn.js";
 import type { CodeExecutor, ExecuteResult, ExecutionProvider } from "./types.js";
-
-type HostFn = (args: unknown) => unknown | Promise<unknown>;
 
 type QuickJsModule = Awaited<ReturnType<typeof newQuickJSWASMModuleFromVariant>>;
 
@@ -297,36 +296,6 @@ function transpileUserCode(code: string): string {
       module: ts.ModuleKind.ESNext,
     },
   }).outputText;
-}
-
-function createHostFnResolver(
-  providersOrFns: ExecutionProvider[] | Record<string, unknown>,
-): (name: string) => HostFn | undefined {
-  const roots = Array.isArray(providersOrFns)
-    ? Object.fromEntries(providersOrFns.map((provider) => [provider.name, provider.fns]))
-    : { codemode: providersOrFns };
-  const codemodeRoot = roots.codemode;
-
-  return (name: string): HostFn | undefined => {
-    const namespaced = resolvePath(roots, name);
-    if (namespaced) return namespaced;
-
-    // File tools and discovery helpers are exposed as top-level functions but are backed by
-    // the codemode provider. Resolve dynamically so Proxy-backed MCP namespaces with no cached
-    // tool names can still handle calls such as context7.resolve_library_id.
-    return resolvePath(codemodeRoot, name);
-  };
-}
-
-function resolvePath(root: unknown, path: string): HostFn | undefined {
-  let current = root;
-  for (const part of path.split(".")) {
-    if (!current || (typeof current !== "object" && typeof current !== "function")) {
-      return undefined;
-    }
-    current = (current as Record<string, unknown>)[part];
-  }
-  return typeof current === "function" ? (current as HostFn) : undefined;
 }
 
 async function resolveQuickJsPromise(

@@ -60,6 +60,7 @@ const pending = new Map<
 >();
 let nextId = 1;
 let strings: Record<string, string> = {};
+let jobArgs: Record<string, string> = {};
 
 // --- Protocol I/O ---
 
@@ -119,8 +120,9 @@ function callTool(name: string, args?: unknown): Promise<unknown> {
 
 // --- Global Setup ---
 
-function setupGlobals(userStrings: Record<string, string>): void {
+function setupGlobals(userStrings: Record<string, string>, userArgs: Record<string, string>): void {
   strings = Object.freeze(userStrings);
+  jobArgs = Object.freeze(userArgs);
 
   // Create codemode proxy - all property accesses become tool calls
   (globalThis as any).codemode = new Proxy(
@@ -194,6 +196,9 @@ function setupGlobals(userStrings: Record<string, string>): void {
   // π contains the string constants
   (globalThis as any).π = strings;
 
+  // args contains the job arguments
+  (globalThis as any).args = jobArgs;
+
   // Override console methods to send to host
   console.log = (...args: unknown[]) => send({ type: "log", level: "log", args });
   console.warn = (...args: unknown[]) => send({ type: "log", level: "warn", args });
@@ -209,30 +214,41 @@ async function executeCode(
 ): Promise<{ result?: unknown; error?: string; logs: unknown[] }> {
   const logs: unknown[] = [];
 
-  // Wrap code in async function
-  const wrappedCode = `
-    (async function() {
-      ${code}
-    })()
-  `;
+  // Wrap code in an async IIFE. The IIFE must start on the same line as the
+  // `return` below: a leading newline would trigger automatic semicolon
+  // insertion and make `return` return `undefined` instead of the promise.
+  const wrappedCode = `(async function() {\n${code}\n})()`;
 
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    // Use Function constructor for safer evaluation than eval
-    // This runs in the Deno sandbox with no additional permissions
-    const fn = new Function("return " + wrappedCode)();
+    // Use Function constructor for safer evaluation than eval.
+    //
+    // SECURITY: this runs arbitrary guest code in the same process as the
+    // protocol handler. It is acceptable ONLY because the Deno subprocess
+    // boundary plus the denied --allow-* permissions are the complete security
+    // boundary. The parent process enforces a hard subprocess timeout because a
+    // synchronous infinite loop blocks this event loop and defeats this timer.
+    // Evaluate the async IIFE once and await its promise. The function body
+    // returns the IIFE result, and the resulting function is called exactly
+    // once.
+    const fn = new Function("return " + wrappedCode);
 
-    // Race against timeout
-    const result = await Promise.race([
-      fn(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Execution timed out after ${timeoutMs}ms`)), timeoutMs),
-      ),
-    ]);
+    // Race against timeout. The timer is cleared in the finally block so the
+    // child process does not linger after the code settles.
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`Execution timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
+    });
 
+    const result = await Promise.race([fn(), timeout]);
     return { result, logs };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     return { error, logs };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -244,7 +260,7 @@ async function main(): Promise<void> {
   const configArg = args.find((a) => a.startsWith("--config="));
   const config = configArg ? JSON.parse(configArg.slice(9)) : {};
 
-  const { code, strings: userStrings, timeoutMs = 120000 } = config;
+  const { code, strings: userStrings, args: userArgs, timeoutMs = 120000 } = config;
 
   if (!code) {
     send({ type: "runtime_error", error: { message: "No code provided" } });
@@ -252,7 +268,7 @@ async function main(): Promise<void> {
   }
 
   // Setup globals
-  setupGlobals(userStrings || {});
+  setupGlobals(userStrings || {}, userArgs || {});
 
   // Start response reader in background
   const reader = Deno.stdin.readable.getReader();
@@ -285,15 +301,16 @@ async function main(): Promise<void> {
   // Execute user code
   const { result, error } = await executeCode(code, timeoutMs);
 
-  // Cancel reader
-  reader.releaseLock();
-
   // Send result
   if (error) {
     send({ type: "done", error });
   } else {
     send({ type: "done", result });
   }
+
+  // Exit deterministically so the child process does not linger (e.g. from a
+  // background stdin reader or any stray timer).
+  Deno.exit(0);
 }
 
 main().catch((err) => {

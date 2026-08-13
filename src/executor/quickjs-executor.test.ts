@@ -112,6 +112,49 @@ describe("QuickJsExecutor", () => {
     expect(result.result).toEqual({ tool: "resolve_library_id", args: { libraryName: "perryts" } });
   });
 
+  test("does not let prototype-chain names reach host functions", async () => {
+    const executor = new QuickJsExecutor({ timeout: 5_000 });
+    const calls: unknown[] = [];
+    const result = await executor.execute(
+      `
+        const results = [];
+        for (const name of ["constructor", "constructor.constructor", "toString", "valueOf", "__proto__", "prototype"]) {
+          try {
+            await codemode[name]({});
+            results.push("ok");
+          } catch {
+            results.push("error");
+          }
+        }
+        return results;
+      `,
+      [
+        {
+          name: "codemode",
+          fns: {
+            read: async (args: unknown) => {
+              calls.push(args);
+              return "read";
+            },
+          },
+        },
+      ],
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(calls).toEqual([]);
+    expect(result.result).toEqual(["error", "error", "error", "error", "error", "error"]);
+  });
+
+  test("does not let prototype-chain names reach host functions through mcp namespace", async () => {
+    const executor = new QuickJsExecutor({ timeout: 5_000 });
+    const result = await executor.execute(`return await mcp.github.constructor({});`, [
+      { name: "mcp", fns: { github: { search_issues: async () => "ok" } } },
+    ]);
+
+    expect(result.error ?? "").toMatch(/not found/i);
+  });
+
   test("does not use QuickJS after Promise.all rejects while other host calls are in flight", async () => {
     const executor = new QuickJsExecutor({ timeout: 5_000 });
     const result = await executor.execute(

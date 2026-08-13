@@ -1,12 +1,20 @@
 // deno-executor.ts — Deno sandbox executor implementation.
 //
-// Implements the Cloudflare Executor interface for local Deno execution.
-// Manages Deno subprocess, JSON-RPC protocol, and tool call dispatch.
-
+// Implements the CodeExecutor interface for local Deno execution. Manages the
+// Deno subprocess, the LSP-style framed JSON protocol, and tool call dispatch.
+//
+// Security model: Deno is deny-by-default, so the subprocess is spawned with no
+// --allow-* flags except --allow-read, which grants access ONLY to the generated
+// bootstrap entrypoint (Deno needs to read the main module to run at all). The
+// subprocess boundary plus the denied permissions are the complete security
+// boundary for guest code; the parent process enforces a hard timeout that kills
+// the whole process group so runaway code cannot leave children behind. QuickJS
+// remains the recommended/default executor.
 import { spawn } from "node:child_process";
 import { writeFile, unlink, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHostFnResolver } from "./resolve-host-fn.js";
 import type { CodeExecutor, ExecuteResult, ExecutionProvider } from "./types.js";
 
 export interface DenoExecutorOptions {
@@ -43,13 +51,27 @@ interface DoneMessage {
   error?: string;
 }
 
-type ProtocolMessage = ToolCallMessage | ToolResultMessage | LogMessage | DoneMessage;
+interface RuntimeErrorMessage {
+  type: "runtime_error";
+  error: { message: string; stack?: string };
+}
+
+type ProtocolMessage =
+  | ToolCallMessage
+  | ToolResultMessage
+  | LogMessage
+  | DoneMessage
+  | RuntimeErrorMessage;
+
+type ChildProcess = ReturnType<typeof spawn>;
+type HostFn = (args: unknown) => unknown | Promise<unknown>;
 
 /**
  * Deno sandbox executor.
  *
- * Runs generated code in a Deno subprocess with no permissions,
- * communicating via JSON-RPC over stdin/stdout.
+ * Runs generated code in a Deno subprocess with all permissions denied (except
+ * reading the bootstrap entrypoint), communicating via framed JSON over
+ * stdin/stdout.
  */
 export class DenoExecutor implements CodeExecutor {
   #timeout: number;
@@ -65,12 +87,8 @@ export class DenoExecutor implements CodeExecutor {
    * Initialize the executor by writing the bootstrap file.
    */
   async init(): Promise<void> {
-    // Write bootstrap to temp directory
-    // In production, this could be bundled with the package
     const tmpDir = await mkdtemp(join(tmpdir(), "pi-codemode-"));
     this.#bootstrapPath = join(tmpDir, "deno-bootstrap.ts");
-
-    // Read the bootstrap source (in production, this would be imported)
     const bootstrapSource = await this.#getBootstrapSource();
     await writeFile(this.#bootstrapPath, bootstrapSource, "utf-8");
   }
@@ -81,17 +99,25 @@ export class DenoExecutor implements CodeExecutor {
   async execute(
     code: string,
     providersOrFns: ExecutionProvider[] | Record<string, unknown>,
+    options?: {
+      strings?: Record<string, string>;
+      args?: Readonly<Partial<Record<string, string>>>;
+      signal?: AbortSignal;
+    },
   ): Promise<ExecuteResult> {
     if (!this.#bootstrapPath) {
       await this.init();
     }
+    if (options?.signal?.aborted) {
+      return { result: undefined, error: "Execution cancelled", logs: [] };
+    }
 
     const resolveHostFn = createHostFnResolver(providersOrFns);
 
-    // Spawn Deno process
     const config = {
       code,
-      strings: {}, // Will be populated from execution context
+      strings: options?.strings ?? {},
+      args: options?.args ?? {},
       timeoutMs: this.#timeout,
     };
 
@@ -99,85 +125,121 @@ export class DenoExecutor implements CodeExecutor {
       "run",
       "--quiet",
       "--no-prompt",
-      // No permissions granted - strict sandbox
-      "--allow-read=", // Empty = no read access
-      "--allow-write=", // Empty = no write access
-      "--allow-net=", // Empty = no network access
-      "--allow-env=", // Empty = no env access
-      "--allow-run=", // Empty = no subprocess access
-      "--allow-sys=", // Empty = no system access
-      "--allow-ffi=", // Empty = no FFI access
+      // Deno is deny-by-default: no --allow-* flags means no filesystem, network,
+      // environment, subprocess, system, or FFI access. The only exception is
+      // reading the bootstrap entrypoint itself, which Deno requires to load the
+      // main module. Granting only this one path keeps the rest denied.
+      `--allow-read=${this.#bootstrapPath}`,
       this.#bootstrapPath!,
       `--config=${JSON.stringify(config)}`,
     ];
 
+    // detached: true puts the child in its own process group so the parent can
+    // kill the whole group (including any grandchildren) on timeout/cancel.
     const child = spawn(this.#denoPath, args, {
       stdio: ["pipe", "pipe", "pipe"],
-      detached: false,
+      detached: true,
     });
 
     const logs: string[] = [];
-    // Handle stdout (protocol messages)
     let stdoutBuffer = "";
-    child.stdout?.on("data", (data: Buffer) => {
-      stdoutBuffer += data.toString("utf-8");
-
-      // Parse LSP-style framed messages
-      while (true) {
-        const headerMatch = stdoutBuffer.match(/Content-Length:\s*(\d+)\r\n\r\n/);
-        if (!headerMatch) break;
-
-        const contentLength = parseInt(headerMatch[1], 10);
-        const headerEnd = headerMatch.index! + headerMatch[0].length;
-        const messageEnd = headerEnd + contentLength;
-
-        if (stdoutBuffer.length < messageEnd) break;
-
-        const json = stdoutBuffer.slice(headerEnd, messageEnd);
-        stdoutBuffer = stdoutBuffer.slice(messageEnd);
-
-        try {
-          const msg = JSON.parse(json) as ProtocolMessage;
-          this.#handleMessage(msg, resolveHostFn, logs, child);
-        } catch {
-          // Invalid JSON - ignore
-        }
-      }
-    });
-
-    // Handle stderr (Deno errors)
     let stderrBuffer = "";
-    child.stderr?.on("data", (data: Buffer) => {
-      stderrBuffer += data.toString("utf-8");
-    });
+    let settled = false;
+    let timeoutId: NodeJS.Timeout | undefined;
+    let abortHandler: (() => void) | undefined;
 
-    // Wait for process to complete
-    return new Promise((resolve, reject) => {
-      // Timeout handling
-      const timeoutId = setTimeout(() => {
-        child.kill("SIGTERM");
-        resolve({
+    return new Promise<ExecuteResult>((resolve, reject) => {
+      const killGroup = (): void => {
+        try {
+          if (child.pid) process.kill(-child.pid, "SIGTERM");
+        } catch {
+          // Process group already gone.
+        }
+      };
+
+      const cleanup = (): void => {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (abortHandler) options?.signal?.removeEventListener("abort", abortHandler);
+      };
+
+      const finish = (result: ExecuteResult): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        // Ensure no child process lingers after completion.
+        killGroup();
+        resolve(result);
+      };
+
+      // Hard parent timeout: the authoritative kill switch for runaway code.
+      // A synchronous infinite loop blocks the Deno event loop, so the
+      // bootstrap-level timer cannot interrupt it; only this parent timeout can.
+      timeoutId = setTimeout(() => {
+        finish({
           result: undefined,
           error: `Execution timed out after ${this.#timeout}ms`,
           logs,
         });
-      }, this.#timeout + 5000); // Give 5s grace for cleanup
+      }, this.#timeout);
+
+      if (options?.signal) {
+        abortHandler = () => {
+          finish({ result: undefined, error: "Execution cancelled", logs });
+        };
+        options.signal.addEventListener("abort", abortHandler, { once: true });
+      }
+
+      child.stdout?.on("data", (data: Buffer) => {
+        stdoutBuffer += data.toString("utf-8");
+
+        // Parse LSP-style framed messages.
+        while (true) {
+          const headerMatch = stdoutBuffer.match(/Content-Length:\s*(\d+)\r\n\r\n/);
+          if (!headerMatch) break;
+
+          const contentLength = parseInt(headerMatch[1], 10);
+          const headerEnd = headerMatch.index! + headerMatch[0].length;
+          const messageEnd = headerEnd + contentLength;
+
+          if (stdoutBuffer.length < messageEnd) break;
+
+          const json = stdoutBuffer.slice(headerEnd, messageEnd);
+          stdoutBuffer = stdoutBuffer.slice(messageEnd);
+
+          try {
+            const msg = JSON.parse(json) as ProtocolMessage;
+            this.#handleMessage(msg, resolveHostFn, logs, child, finish);
+          } catch {
+            // Invalid JSON - ignore.
+          }
+        }
+      });
+
+      child.stderr?.on("data", (data: Buffer) => {
+        stderrBuffer += data.toString("utf-8");
+      });
 
       child.on("exit", (code) => {
-        clearTimeout(timeoutId);
-
-        if (code !== 0 && code !== null) {
-          resolve({
+        if (settled) return;
+        if (code !== 0) {
+          finish({
             result: undefined,
             error: stderrBuffer || `Deno process exited with code ${code}`,
             logs,
           });
+        } else {
+          // Exit 0 without a done message should not happen; treat as an error.
+          finish({ result: undefined, error: "Deno process exited without a result", logs });
         }
-        // Result will have been sent via protocol before exit
       });
 
       child.on("error", (err) => {
-        clearTimeout(timeoutId);
+        if (settled) return;
+        settled = true;
+        cleanup();
+        // A spawn failure (e.g. ENOENT when the Deno binary is missing) is a
+        // configuration error, not an execution result. Reject so the caller
+        // can report that the configured executor is unavailable.
         reject(err);
       });
     });
@@ -188,9 +250,10 @@ export class DenoExecutor implements CodeExecutor {
    */
   #handleMessage(
     msg: ProtocolMessage,
-    resolveHostFn: (name: string) => ((args: unknown) => unknown | Promise<unknown>) | undefined,
+    resolveHostFn: (name: string) => HostFn | undefined,
     logs: string[],
-    child: ReturnType<typeof spawn>,
+    child: ChildProcess,
+    finish: (result: ExecuteResult) => void,
   ): void {
     switch (msg.type) {
       case "tool_call": {
@@ -198,7 +261,6 @@ export class DenoExecutor implements CodeExecutor {
         const fn = resolveHostFn(name);
 
         if (!fn) {
-          // Send error response
           this.#sendToChild(child, {
             type: "tool_result",
             id,
@@ -207,7 +269,6 @@ export class DenoExecutor implements CodeExecutor {
           return;
         }
 
-        // Execute the tool asynchronously
         Promise.resolve(fn(args))
           .then((result) => {
             this.#sendToChild(child, { type: "tool_result", id, result });
@@ -228,8 +289,17 @@ export class DenoExecutor implements CodeExecutor {
       }
 
       case "done": {
-        // Execution complete - resolve the promise
-        // This is handled by the exit handler, but we could also resolve here
+        // The done message is the authoritative completion signal.
+        if (msg.error) {
+          finish({ result: undefined, error: msg.error, logs });
+        } else {
+          finish({ result: msg.result, logs });
+        }
+        break;
+      }
+
+      case "runtime_error": {
+        finish({ result: undefined, error: msg.error.message, logs });
         break;
       }
     }
@@ -238,7 +308,7 @@ export class DenoExecutor implements CodeExecutor {
   /**
    * Send a message to the Deno child process.
    */
-  #sendToChild(child: ReturnType<typeof spawn>, msg: ProtocolMessage): void {
+  #sendToChild(child: ChildProcess, msg: ProtocolMessage): void {
     const json = JSON.stringify(msg);
     const data = `Content-Length: ${json.length}\r\n\r\n${json}`;
     child.stdin?.write(data);
@@ -249,8 +319,6 @@ export class DenoExecutor implements CodeExecutor {
    * In production, this would read from a bundled file.
    */
   async #getBootstrapSource(): Promise<string> {
-    // For now, read from the adjacent file
-    // In production, this could be embedded or bundled
     const { readFile } = await import("node:fs/promises");
     const { fileURLToPath } = await import("node:url");
     const { dirname, join } = await import("node:path");
@@ -275,40 +343,9 @@ export class DenoExecutor implements CodeExecutor {
       try {
         await unlink(this.#bootstrapPath);
       } catch {
-        // Ignore cleanup errors
+        // Ignore cleanup errors.
       }
       this.#bootstrapPath = null;
     }
   }
-}
-
-function createHostFnResolver(
-  providersOrFns: ExecutionProvider[] | Record<string, unknown>,
-): (name: string) => ((args: unknown) => unknown | Promise<unknown>) | undefined {
-  const roots = Array.isArray(providersOrFns)
-    ? Object.fromEntries(providersOrFns.map((provider) => [provider.name, provider.fns]))
-    : { codemode: providersOrFns };
-  const codemodeRoot = roots.codemode;
-
-  return (name: string): ((args: unknown) => unknown | Promise<unknown>) | undefined => {
-    const namespaced = resolvePath(roots, name);
-    if (namespaced) return namespaced;
-    return resolvePath(codemodeRoot, name);
-  };
-}
-
-function resolvePath(
-  root: unknown,
-  path: string,
-): ((args: unknown) => unknown | Promise<unknown>) | undefined {
-  let current = root;
-  for (const part of path.split(".")) {
-    if (!current || (typeof current !== "object" && typeof current !== "function")) {
-      return undefined;
-    }
-    current = (current as Record<string, unknown>)[part];
-  }
-  return typeof current === "function"
-    ? (current as (args: unknown) => unknown | Promise<unknown>)
-    : undefined;
 }
