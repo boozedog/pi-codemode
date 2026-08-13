@@ -20,6 +20,8 @@ export interface CodeExecutor {
       strings?: Record<string, string>;
       args?: Readonly<Partial<Record<string, string>>>;
       signal?: AbortSignal;
+      /** Install the job-only createFile global (set only by runJob()). */
+      enableCreateFile?: boolean;
     },
   ): Promise<ExecuteResult>;
   shutdown?(): Promise<void>;

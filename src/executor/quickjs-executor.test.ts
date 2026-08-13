@@ -81,6 +81,29 @@ describe("QuickJsExecutor", () => {
     }
   });
 
+  test("hides the raw __hostCall bridge while read still works", async () => {
+    const executor = new QuickJsExecutor({ timeout: 5_000 });
+    const calls: unknown[] = [];
+    const result = await executor.execute(
+      `return { bridge: typeof globalThis.__hostCall, read: await read({ path: "a.txt" }) };`,
+      [
+        {
+          name: "codemode",
+          fns: {
+            read: async (args: unknown) => {
+              calls.push(args);
+              return "contents";
+            },
+          },
+        },
+      ],
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.result).toEqual({ bridge: "undefined", read: "contents" });
+    expect(calls).toEqual([{ path: "a.txt" }]);
+  });
+
   test("does not expose file tools through codemode namespace", async () => {
     const executor = new QuickJsExecutor({ timeout: 5_000 });
     const result = await executor.execute(`return typeof codemode.replace_in_file;`, [

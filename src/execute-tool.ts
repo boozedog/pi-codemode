@@ -390,6 +390,8 @@ export async function executeCode(
     strings?: Record<string, string>;
     args?: Readonly<Partial<Record<string, string>>>;
     executor?: ExecutorFactoryOptions;
+    /** Enable the job-only createFile global (set only by runJob()). */
+    enableCreateFile?: boolean;
   },
 ): Promise<ExecutionResult> {
   const start = performance.now();
@@ -443,6 +445,7 @@ export async function executeCode(
       strings: options?.strings,
       args: options?.args,
       signal: options?.signal,
+      enableCreateFile: options?.enableCreateFile,
     });
 
     return {

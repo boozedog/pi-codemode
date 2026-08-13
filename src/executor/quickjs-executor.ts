@@ -41,6 +41,8 @@ export class QuickJsExecutor implements CodeExecutor {
       strings?: Record<string, string>;
       args?: Readonly<Partial<Record<string, string>>>;
       signal?: AbortSignal;
+      /** Install the job-only createFile global (set only by runJob()). */
+      enableCreateFile?: boolean;
     },
   ): Promise<ExecuteResult> {
     if (options?.signal?.aborted) {
@@ -135,27 +137,30 @@ export class QuickJsExecutor implements CodeExecutor {
       args.dispose();
 
       const setup = vm.evalCode(`
+				const __hostCall = globalThis.__hostCall;
+				delete globalThis.__hostCall;
 				globalThis.codemode = new Proxy({}, {
 					get(_target, prop) {
 						if (prop === 'then') return undefined;
-						if (prop === 'read' || prop === 'write' || prop === 'replace_in_file' || prop === 'apply_patch') return undefined;
-						return new Proxy(function(args) { return globalThis.__hostCall(String(prop), args ?? {}); }, {
+						if (prop === 'read' || prop === 'write' || prop === 'replace_in_file' || prop === 'apply_patch' || prop === 'createFile') return undefined;
+						return new Proxy(function(args) { return __hostCall(String(prop), args ?? {}); }, {
 							get(_fnTarget, child) {
 								if (child === 'then') return undefined;
-								return function(args) { return globalThis.__hostCall(String(prop) + '.' + String(child), args ?? {}); };
+								return function(args) { return __hostCall(String(prop) + '.' + String(child), args ?? {}); };
 							}
 						});
 					}
 				});
-				globalThis.read = function(args) { return globalThis.__hostCall('read', args ?? {}); };
-				globalThis.sendMessage = function(args) { return globalThis.__hostCall('sendMessage', args ?? {}); };
+				globalThis.read = function(args) { return __hostCall('read', args ?? {}); };
+				${options?.enableCreateFile ? `globalThis.createFile = function(args) { return __hostCall('createFile', args ?? {}); };` : ""}
+				globalThis.sendMessage = function(args) { return __hostCall('sendMessage', args ?? {}); };
 				globalThis.mcp = new Proxy({}, {
 					get(_target, prop) {
 						if (prop === 'then') return undefined;
-						return new Proxy(function(args) { return globalThis.__hostCall('mcp.' + String(prop), args ?? {}); }, {
+						return new Proxy(function(args) { return __hostCall('mcp.' + String(prop), args ?? {}); }, {
 							get(_fnTarget, child) {
 								if (child === 'then') return undefined;
-								return function(args) { return globalThis.__hostCall('mcp.' + String(prop) + '.' + String(child), args ?? {}); };
+								return function(args) { return __hostCall('mcp.' + String(prop) + '.' + String(child), args ?? {}); };
 							}
 						});
 					}
@@ -168,10 +173,10 @@ export class QuickJsExecutor implements CodeExecutor {
 								if (operation === 'then') return undefined;
 								return async function(args) {
 									try {
-										return await globalThis.__hostCall('cli.__call', { tool: String(tool), operation: String(operation), args: args ?? {} });
+										return await __hostCall('cli.__call', { tool: String(tool), operation: String(operation), args: args ?? {} });
 									} catch (err) {
 										if (String(err && err.message || err).includes('Tool "cli.__call" not found')) {
-											return globalThis.__hostCall('cli.' + String(tool) + '.' + String(operation), args ?? {});
+											return __hostCall('cli.' + String(tool) + '.' + String(operation), args ?? {});
 										}
 										throw err;
 									}
@@ -272,6 +277,7 @@ export class QuickJsExecutor implements CodeExecutor {
       const cleanup = vm.evalCode(`
         globalThis.__hostCall = undefined;
         globalThis.read = undefined;
+        globalThis.createFile = undefined;
         globalThis.sendMessage = undefined;
         globalThis.codemode = undefined;
         globalThis.mcp = undefined;

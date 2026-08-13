@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
@@ -17,7 +17,7 @@ vi.mock("@mariozechner/pi-tui", () => ({
   },
 }));
 
-const { createExecuteTool } = await import("./execute-tool.js");
+const { createExecuteTool, executeCode } = await import("./execute-tool.js");
 
 interface RenderedComponent {
   render(width: number): string[];
@@ -417,6 +417,133 @@ describe("codemode integration", () => {
       expect(result.content[0].text).toBe(
         'before read\nafter read 9\n\n{\n  "content": "from file"\n}',
       );
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  test("job execution with createFile enabled creates a real file", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "codemode-create-"));
+    try {
+      const fileTools = createFileTools({ projectRoot: projectDir });
+      const jobBindings = {
+        ...bindings,
+        createFile: async (params: { path: string; content: string }) => fileTools.create(params),
+      };
+      const typeDefs =
+        "declare function createFile(args: { path: string; content: string }): Promise<void>;";
+
+      const result = await executeCode(
+        `await createFile({ path: "raw/example.md", content: "# hi" }); return "done";`,
+        typeDefs,
+        jobBindings,
+        { executor: { kind: "quickjs" }, enableCreateFile: true },
+      );
+
+      expect(result.success).toBe(true);
+      expect(readFileSync(join(projectDir, "raw/example.md"), "utf-8")).toBe("# hi");
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  test("duplicate createFile fails without changing the existing file", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "codemode-create-dup-"));
+    try {
+      const fileTools = createFileTools({ projectRoot: projectDir });
+      const jobBindings = {
+        ...bindings,
+        createFile: async (params: { path: string; content: string }) => fileTools.create(params),
+      };
+      const typeDefs =
+        "declare function createFile(args: { path: string; content: string }): Promise<void>;";
+
+      const result = await executeCode(
+        `await createFile({ path: "raw/example.md", content: "first" }); await createFile({ path: "raw/example.md", content: "second" }); return "done";`,
+        typeDefs,
+        jobBindings,
+        { executor: { kind: "quickjs" }, enableCreateFile: true },
+      );
+
+      expect(result.success).toBe(false);
+      expect(readFileSync(join(projectDir, "raw/example.md"), "utf-8")).toBe("first");
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  test("createFile global is not installed when the execution option is disabled", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "codemode-create-gated-"));
+    try {
+      const fileTools = createFileTools({ projectRoot: projectDir });
+      const jobBindings = {
+        ...bindings,
+        createFile: async (params: { path: string; content: string }) => fileTools.create(params),
+      };
+      const typeDefs =
+        "declare function createFile(args: { path: string; content: string }): Promise<void>;";
+
+      const result = await executeCode(
+        `await createFile({ path: "raw/example.md", content: "x" }); return "done";`,
+        typeDefs,
+        jobBindings,
+        { executor: { kind: "quickjs" } },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.errors[0]?.message).toMatch(/createFile/);
+      expect(existsSync(join(projectDir, "raw/example.md"))).toBe(false);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  test("createFile is not reachable through the codemode namespace proxy", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "codemode-create-proxy-"));
+    try {
+      const fileTools = createFileTools({ projectRoot: projectDir });
+      const jobBindings = {
+        ...bindings,
+        createFile: async (params: { path: string; content: string }) => fileTools.create(params),
+      };
+      const typeDefs = `declare function createFile(args: { path: string; content: string }): Promise<void>;
+declare const codemode: { createFile(args: { path: string; content: string }): Promise<void>; };`;
+
+      const result = await executeCode(
+        `await codemode.createFile({ path: "raw/example.md", content: "x" }); return "done";`,
+        typeDefs,
+        jobBindings,
+        { executor: { kind: "quickjs" }, enableCreateFile: true },
+      );
+
+      expect(result.success).toBe(false);
+      expect(existsSync(join(projectDir, "raw/example.md"))).toBe(false);
+    } finally {
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  test("guest code cannot reach the raw __hostCall bridge to invoke write", async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), "codemode-hostcall-"));
+    try {
+      const fileTools = createFileTools({ projectRoot: projectDir });
+      const jobBindings = {
+        ...bindings,
+        write: async (params: { path: string; content: string }) => fileTools.write(params),
+      };
+      const typeDefs = `declare function write(args: { path: string; content: string }): Promise<void>;`;
+
+      const result = await executeCode(
+        `await (globalThis as any).__hostCall('write', { path: "pwned.txt", content: "x" }); return "done";`,
+        typeDefs,
+        jobBindings,
+        { executor: { kind: "quickjs" } },
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.errorKind).toBe("runtime");
+      expect(result.errors[0]?.message).toMatch(/not a function|undefined|__hostCall/i);
+      expect(existsSync(join(projectDir, "pwned.txt"))).toBe(false);
     } finally {
       rmSync(projectDir, { recursive: true, force: true });
     }

@@ -133,6 +133,50 @@ describe("file tools", () => {
     });
   });
 
+  describe("create", () => {
+    it("creates a new file", () => {
+      tools.create({ path: "new.txt", content: "hello" });
+      expect(readFileSync(join(projectDir, "new.txt"), "utf-8")).toBe("hello");
+    });
+
+    it("creates missing parent directories", () => {
+      tools.create({ path: "a/b/c/new.txt", content: "deep" });
+      expect(readFileSync(join(projectDir, "a/b/c/new.txt"), "utf-8")).toBe("deep");
+    });
+
+    it("fails when the target already exists without changing it", () => {
+      writeFileSync(join(projectDir, "existing.txt"), "original");
+      expect(() => tools.create({ path: "existing.txt", content: "overwrite" })).toThrow(
+        /EEXIST|already exists/i,
+      );
+      expect(readFileSync(join(projectDir, "existing.txt"), "utf-8")).toBe("original");
+    });
+
+    it("throws error for path outside project", () => {
+      expect(() => tools.create({ path: "/etc/new.txt", content: "x" })).toThrow(
+        "Path outside project",
+      );
+    });
+
+    it("throws error for path traversal attempt", () => {
+      expect(() => tools.create({ path: "../new.txt", content: "x" })).toThrow(
+        "Path outside project",
+      );
+    });
+
+    it("rejects a directory symlink that escapes the project root", () => {
+      const outsideDir = mkdtempSync(join(tmpdir(), "codemode-outside-"));
+      try {
+        symlinkSync(outsideDir, join(projectDir, "escape"));
+        expect(() => tools.create({ path: "escape/secret.txt", content: "x" })).toThrow(
+          "Path outside project",
+        );
+      } finally {
+        rmSync(outsideDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("apply_patch", () => {
     it("applies a unified diff to an existing file", () => {
       writeFileSync(join(projectDir, "test.txt"), "line1\nline2\nline3\n");

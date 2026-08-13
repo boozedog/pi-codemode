@@ -331,10 +331,17 @@ function cliOperationSignature(tool: string, operation: string): string {
   return `/** ${doc} */ ${sanitizeIdentifier(operation)}(args${optional}: ${argsType}): Promise<CommandResult>;`;
 }
 
-export function generateBuiltinTypeDefs(config?: { cli?: CliConfig }): string {
+export function generateBuiltinTypeDefs(config?: {
+  cli?: CliConfig;
+  createFile?: boolean;
+}): string {
   // Generate types from JSON Schema descriptors
   void fileToolDescriptors;
   const generated = generateTypesFromJsonSchema(builtinToolDescriptors);
+  const createFileDecl = config?.createFile
+    ? `/** Create a new file under the project root. Fails if the target already exists. Creates missing parent directories. */
+declare function createFile(args: { path: string; content: string }): Promise<void>;`
+    : "";
 
   // Wrap in the expected interface structure
   return `\
@@ -342,6 +349,7 @@ export function generateBuiltinTypeDefs(config?: { cli?: CliConfig }): string {
 
 /** Read raw file contents. offset is a zero-based line offset; use offset/limit for large files. */
 declare function read(args: { path: string; offset?: number; limit?: number }): Promise<string>;
+${createFileDecl}
 /** File mutation is intentionally not available inside codemode guest code. Use the top-level visible patch editing tool instead; patch results render as diffs in chat. */
 
 /**

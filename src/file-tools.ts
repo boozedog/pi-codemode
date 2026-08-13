@@ -95,6 +95,23 @@ export function createFileTools(options: FileToolsOptions) {
       writeFileSync(fullPath, params.content, "utf-8");
     },
 
+    /**
+     * Create a new file atomically. Fails if the target already exists.
+     * Creates missing parent directories. Uses exclusive-create semantics
+     * (`wx`), never a check-then-write race.
+     */
+    create(params: WriteParams): void {
+      const fullPath = validateAndResolvePath(params.path, scope);
+
+      // Create parent directories if needed
+      const dir = dirname(fullPath);
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+
+      writeFileSync(fullPath, params.content, { flag: "wx", encoding: "utf-8" });
+    },
+
     apply_patch(params: ApplyPatchParams): string {
       return applyUnifiedPatch(params.patch, scope);
     },

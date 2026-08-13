@@ -29,6 +29,8 @@ export type SendMessageFn = (params: SendMessageParams) => void | Promise<void>;
 export interface ToolBindings {
   read(params: { path: string; offset?: number; limit?: number }): Promise<string>;
   write(params: { path: string; content: string }): Promise<void>;
+  /** Create-only file helper, exposed only to explicit /run jobs. */
+  createFile?(params: { path: string; content: string }): Promise<void>;
   replace_in_file(params: {
     path: string;
     edits: Array<{ oldText: string; newText: string }>;
@@ -63,6 +65,8 @@ export interface ToolBindingsOptions {
   onUpdate?: AgentToolUpdateCallback;
   /** Sink for guest sendMessage output (default: no-op). */
   sendMessage?: SendMessageFn;
+  /** Enable the job-only createFile binding (set only by runJob()). */
+  enableCreateFile?: boolean;
 }
 
 /**
@@ -73,7 +77,7 @@ export interface ToolBindingsOptions {
  * to ensure operations stay within the project directory.
  */
 export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
-  const { cwd, mcpServers, mcpClient, signal, onUpdate, sendMessage } = options;
+  const { cwd, mcpServers, mcpClient, signal, onUpdate, sendMessage, enableCreateFile } = options;
 
   // Create file tools scoped to the project directory
   const fileTools = createFileTools({ projectRoot: cwd });
@@ -88,6 +92,15 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
       if (signal?.aborted) throw new Error("Execution cancelled");
       return fileTools.write(params);
     },
+
+    ...(enableCreateFile
+      ? {
+          async createFile(params: { path: string; content: string }) {
+            if (signal?.aborted) throw new Error("Execution cancelled");
+            return fileTools.create(params);
+          },
+        }
+      : {}),
 
     async replace_in_file(params) {
       if (signal?.aborted) throw new Error("Execution cancelled");

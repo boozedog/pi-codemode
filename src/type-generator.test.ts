@@ -66,6 +66,32 @@ describe("built-in file tool type definitions", () => {
     expect(typeDefs).toContain("Use the top-level visible patch editing tool instead");
   });
 
+  test("interactive type defs do not declare or type-check createFile", () => {
+    const typeDefs = generateBuiltinTypeDefs();
+    expect(typeDefs).not.toContain("declare function createFile");
+    expect(
+      typeCheck(`await createFile({ path: "x", content: "y" });`, typeDefs).errors,
+    ).not.toEqual([]);
+  });
+
+  test("job type defs declare createFile but keep mutating helpers unavailable", () => {
+    const typeDefs = generateBuiltinTypeDefs({ createFile: true });
+    expect(typeDefs).toContain("declare function createFile");
+    expect(typeCheck(`await createFile({ path: "x", content: "y" });`, typeDefs).errors).toEqual(
+      [],
+    );
+    expect(typeCheck(`await write({ path: "x", content: "y" });`, typeDefs).errors).not.toEqual([]);
+    expect(
+      typeCheck(
+        `await replace_in_file({ path: "x", edits: [{ oldText: "a", newText: "b" }] });`,
+        typeDefs,
+      ).errors,
+    ).not.toEqual([]);
+    expect(
+      typeCheck(`await apply_patch({ patch: "--- a/x\n+++ b/x\n" });`, typeDefs).errors,
+    ).not.toEqual([]);
+  });
+
   test("types sendMessage as a top-level tool and inside codemode namespace", () => {
     const typeDefs = generateBuiltinTypeDefs();
 

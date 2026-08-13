@@ -128,6 +128,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       details?: unknown;
     }) => void,
     mode?: string,
+    enableCreateFile?: boolean,
   ) {
     return createToolBindings({
       cwd,
@@ -137,6 +138,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       signal,
       onUpdate,
       sendMessage: makeSendMessageSink(mode),
+      enableCreateFile,
     });
   }
 
@@ -386,14 +388,17 @@ export default function codemodeExtension(pi: ExtensionAPI) {
         }
       })();
       const entry = packageInfo?.entry ?? resolveJobEntry(invocation.job, ctx.cwd || process.cwd());
+      const jobTypeDefs =
+        generateBuiltinTypeDefs({ cli: config.cli, createFile: true }) + "\n" + mcpTypeDefs;
       const result = await executeCode(
         readJobEntry(entry),
-        typeCheckerTypeDefs,
-        getBindings(ctx.cwd || process.cwd(), undefined, undefined, ctx.mode),
+        jobTypeDefs,
+        getBindings(ctx.cwd || process.cwd(), undefined, undefined, ctx.mode, true),
         {
           timeout: config.executor?.timeoutMs ?? 120_000,
           executor: { kind: "quickjs" },
           args: invocation.args,
+          enableCreateFile: true,
         },
       );
       for (const log of result.logs) process.stderr.write(log + "\n");
