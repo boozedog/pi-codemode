@@ -429,16 +429,26 @@ The helper checks for a clean tree, updates `package.json`/`package-lock.json` w
 
 After the tag is pushed:
 
-1. From a clean directory or machine, install the tag with `pi install git:github.com/boozedog/pi-codemode@<tag>`.
-2. Start Pi and confirm Codemode loads, the `codemode` tool can read files, typed host `cli.*` capabilities work, and the result UI renders.
-3. Publish the same version to npm for the Pi package catalog.
+1. GitHub Actions runs `.github/workflows/publish.yml` and publishes `@boozedog/pi-codemode` to npm with provenance (OIDC trusted publishing). No local `npm publish` step.
+2. From a clean directory or machine, install the tag with `pi install git:github.com/boozedog/pi-codemode@<tag>`.
+3. Start Pi and confirm Codemode loads, the `codemode` tool can read files, typed host `cli.*` capabilities work, and the result UI renders.
+
+Once npm indexes the package, `https://pi.dev/packages` discovers it from the `pi-package` keyword.
 
 ### Publish to npm for pi.dev catalog discovery
 
-Make sure you are logged in to npm as an account with publish rights for `@boozedog/pi-codemode`, then run:
+npm publishing is CI-only. Pushing a `v*.*.*` tag (via `npm run release` / `publish:tag`) triggers `.github/workflows/publish.yml`, which runs `npm run check` and `npm publish --access public` on a GitHub-hosted runner. Provenance attestations are automatic via npm **trusted publishing** (OIDC); do not pass `--provenance` or a long-lived `NPM_TOKEN`.
+
+**One-time npmjs.com setup** (after `publish.yml` is on `master`):
+
+1. Open https://www.npmjs.com/package/@boozedog/pi-codemode → Settings → **Publishing access** → **Add GitHub Actions trusted publisher**.
+2. Provider: GitHub Actions; organization or user: `boozedog`; repository: `pi-codemode`; workflow filename: `publish.yml` (filename only); environment: leave empty; allowed actions: `npm publish`.
+3. After the first successful CI publish of `0.4.0`, enable **Require two-factor authentication and disallow tokens** under Publishing access so laptop `npm publish` cannot bypass provenance.
+
+**Catch-up or retry** for an existing tag (e.g. `v0.4.0` already on GitHub): Actions → Publish Package → **Run workflow** (`workflow_dispatch`), enter the tag name. Do not publish from a laptop.
+
+Confirm provenance after publish:
 
 ```sh
-npm run publish:npm
+npm view @boozedog/pi-codemode@<version> dist.attestations
 ```
-
-The publish helper runs checks, verifies the tree is clean, dry-runs the package tarball, and publishes with `--access public`. Once npm indexes the package, `https://pi.dev/packages` discovers it from the `pi-package` keyword.
