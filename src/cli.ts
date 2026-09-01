@@ -186,7 +186,7 @@ function executeHost(
   signal?: AbortSignal,
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env: hostCommandEnv(), signal });
+    const child = spawn(command, args, { cwd, env: hostCommandEnv(toolName), signal });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
@@ -222,15 +222,18 @@ function executeHost(
   });
 }
 
-function hostCommandEnv(): NodeJS.ProcessEnv {
-  return {
+function hostCommandEnv(toolName: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH ?? "",
     HOME: process.env.HOME,
     XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
-    GH_TOKEN: process.env.GH_TOKEN,
-    GITHUB_TOKEN: process.env.GITHUB_TOKEN,
-    GITHUB_HOST: process.env.GITHUB_HOST,
   };
+  if (toolName === "gh") {
+    env.GH_TOKEN = process.env.GH_TOKEN;
+    env.GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+    env.GITHUB_HOST = process.env.GITHUB_HOST;
+  }
+  return env;
 }
 
 const HOST_MAX_OUTPUT_BYTES = 50 * 1024;

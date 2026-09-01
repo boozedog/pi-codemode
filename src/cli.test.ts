@@ -218,6 +218,12 @@ describe("cli command capabilities", () => {
       "--",
       "src/a.ts",
     ]);
+    expect(buildCliArgv("git", "diff", { ref: "HEAD", paths: ["src/a.ts"] })).toEqual([
+      "diff",
+      "HEAD",
+      "--",
+      "src/a.ts",
+    ]);
     expect(buildCliArgv("git", "log", { limit: 3, oneline: true })).toEqual([
       "log",
       "--max-count",
@@ -234,19 +240,23 @@ describe("cli command capabilities", () => {
     expect(buildCliArgv("git", "add", { paths: ["src/a.ts"] })).toEqual(["add", "--", "src/a.ts"]);
     expect(buildCliArgv("git", "commit", { message: "feat: add tools" })).toEqual([
       "commit",
-      "-m",
-      "feat: add tools",
+      "--message=feat: add tools",
     ]);
     expect(buildCliArgv("git", "push", { remote: "origin", branch: "main" })).toEqual([
       "push",
+      "--",
       "origin",
       "main",
     ]);
     expect(buildCliArgv("git", "pull", { rebase: true })).toEqual(["pull", "--rebase"]);
+    expect(buildCliArgv("git", "switch", { branch: "feature" })).toEqual([
+      "switch",
+      "--",
+      "feature",
+    ]);
     expect(buildCliArgv("git", "switch", { branch: "feature", create: true })).toEqual([
       "switch",
-      "--create",
-      "feature",
+      "--create=feature",
     ]);
     expect(buildCliArgv("git", "checkout", { branch: "main", paths: ["README.md"] })).toEqual([
       "checkout",
@@ -268,22 +278,20 @@ describe("cli command capabilities", () => {
     expect(buildCliArgv("git", "stash", { command: "push", message: "wip" })).toEqual([
       "stash",
       "push",
-      "-m",
-      "wip",
+      "--message=wip",
     ]);
     expect(buildCliArgv("git", "tag", { name: "v1.0.0", message: "release" })).toEqual([
       "tag",
       "-a",
+      "--message=release",
+      "--",
       "v1.0.0",
-      "-m",
-      "release",
     ]);
     expect(buildCliArgv("gh", "issueView", { number: 13, repo: "owner/repo" })).toEqual([
       "issue",
       "view",
       "13",
-      "--repo",
-      "owner/repo",
+      "--repo=owner/repo",
       "--json",
       "number,title,state,url,body,author,createdAt,updatedAt,labels,assignees,comments",
     ]);
@@ -299,8 +307,7 @@ describe("cli command capabilities", () => {
     ).toEqual([
       "issue",
       "list",
-      "--repo",
-      "owner/repo",
+      "--repo=owner/repo",
       "--state",
       "open",
       "--limit",
@@ -353,18 +360,12 @@ describe("cli command capabilities", () => {
     ).toEqual([
       "issue",
       "create",
-      "--title",
-      "Track CLI discovery",
-      "--body",
-      "Add dynamic discovery.",
-      "--label",
-      "enhancement",
-      "--label",
-      "security",
-      "--assignee",
-      "@me",
-      "--repo",
-      "owner/repo",
+      "--title=Track CLI discovery",
+      "--body=Add dynamic discovery.",
+      "--label=enhancement",
+      "--label=security",
+      "--assignee=@me",
+      "--repo=owner/repo",
     ]);
     expect(
       buildCliArgv("gh", "issueEdit", {
@@ -379,16 +380,11 @@ describe("cli command capabilities", () => {
       "issue",
       "edit",
       "21",
-      "--title",
-      "Updated title",
-      "--body",
-      "Updated body",
-      "--add-label",
-      "enhancement",
-      "--remove-label",
-      "bug",
-      "--repo",
-      "owner/repo",
+      "--title=Updated title",
+      "--body=Updated body",
+      "--add-label=enhancement",
+      "--remove-label=bug",
+      "--repo=owner/repo",
     ]);
     expect(
       buildCliArgv("gh", "issueComment", {
@@ -396,7 +392,7 @@ describe("cli command capabilities", () => {
         body: "Depends on #22.",
         repo: "owner/repo",
       }),
-    ).toEqual(["issue", "comment", "21", "--body", "Depends on #22.", "--repo", "owner/repo"]);
+    ).toEqual(["issue", "comment", "21", "--body=Depends on #22.", "--repo=owner/repo"]);
     expect(buildCliArgv("gh", "issueClose", { number: 22 })).toEqual(["issue", "close", "22"]);
     expect(buildCliArgv("gh", "issueListBlockedBy", { number: 22 })).toEqual([
       "api",
@@ -438,7 +434,7 @@ describe("cli command capabilities", () => {
         comment: "Done in 0efa12b.",
         repo: "owner/repo",
       }),
-    ).toEqual(["issue", "close", "22", "--comment", "Done in 0efa12b.", "--repo", "owner/repo"]);
+    ).toEqual(["issue", "close", "22", "--comment=Done in 0efa12b.", "--repo=owner/repo"]);
     expect(
       buildCliArgv("gh", "labelCreate", {
         name: "security",
@@ -450,18 +446,14 @@ describe("cli command capabilities", () => {
       "label",
       "create",
       "security",
-      "--description",
-      "Security-related work",
-      "--color",
-      "d73a4a",
-      "--repo",
-      "owner/repo",
+      "--description=Security-related work",
+      "--color=d73a4a",
+      "--repo=owner/repo",
     ]);
     expect(buildCliArgv("gh", "labelList", { repo: "owner/repo", limit: 10 })).toEqual([
       "label",
       "list",
-      "--repo",
-      "owner/repo",
+      "--repo=owner/repo",
       "--limit",
       "10",
     ]);
@@ -474,11 +466,21 @@ describe("cli command capabilities", () => {
         hidden: true,
         ignoreCase: true,
       }),
-    ).toEqual(["--ignore-case", "--hidden", "--max-count", "2", "--glob", "*.ts", "TODO", "src"]);
-    expect(buildCliArgv("find", "files", {})).toEqual(["."]);
+    ).toEqual([
+      "--ignore-case",
+      "--hidden",
+      "--max-count",
+      "2",
+      "--glob=*.ts",
+      "-e",
+      "TODO",
+      "--",
+      "src",
+    ]);
+    expect(buildCliArgv("find", "files", {})).toEqual(["--", "."]);
     expect(
       buildCliArgv("find", "files", { path: "src", maxDepth: 3, name: "*.ts", type: "file" }),
-    ).toEqual(["src", "-maxdepth", "3", "-name", "*.ts", "-type", "f"]);
+    ).toEqual(["--", "src", "-maxdepth", "3", "-name", "*.ts", "-type", "f"]);
     expect(buildCliArgv("find", "files", { type: "directory" })).toContain("d");
     expect(
       buildCliArgv("grep", "search", {
@@ -487,29 +489,115 @@ describe("cli command capabilities", () => {
         recursive: true,
         ignoreCase: true,
       }),
-    ).toEqual(["-R", "-i", "x", "src"]);
+    ).toEqual(["-R", "-i", "-e", "x", "--", "src"]);
     expect(buildCliArgv("ls", "list", { all: true, long: true, path: "src" })).toEqual([
       "-a",
       "-l",
+      "--",
       "src",
     ]);
     expect(buildCliArgv("vitest", "run", { paths: ["src/cli.test.ts"], update: true })).toEqual([
       "run",
-      "src/cli.test.ts",
       "--update",
+      "--",
+      "src/cli.test.ts",
     ]);
     expect(buildCliArgv("vitest", "run", { reporter: "json" })).toEqual(["run", "--reporter=json"]);
     expect(buildCliArgv("tsc", "build", {})).toEqual([]);
     expect(buildCliArgv("tsc", "build", { watch: true })).toEqual(["--watch"]);
-    expect(buildCliArgv("oxfmt", "check", { paths: ["."] })).toEqual([".", "--check"]);
-    expect(buildCliArgv("oxfmt", "write", { paths: ["."] })).toEqual([".", "--write"]);
+    expect(buildCliArgv("oxfmt", "check", { paths: ["."] })).toEqual(["--check", "--", "."]);
+    expect(buildCliArgv("oxfmt", "write", { paths: ["."] })).toEqual(["--write", "--", "."]);
     expect(
       buildCliArgv("oxlint", "run", {
         deny: "warnings",
         vitestPlugin: true,
         paths: ["src"],
       }),
-    ).toEqual(["--deny", "warnings", "--vitest-plugin", "src"]);
+    ).toEqual(["--deny=warnings", "--vitest-plugin", "--", "src"]);
+  });
+
+  test("keeps freeform option values attached without rejecting leading dashes", () => {
+    expect(buildCliArgv("git", "commit", { message: "--author=guest@example.com" })).toEqual([
+      "commit",
+      "--message=--author=guest@example.com",
+    ]);
+    expect(
+      buildCliArgv("gh", "issueCreate", {
+        title: "--title=guest",
+        body: "--body=guest",
+        label: ["--label=guest"],
+        assignee: ["--assignee=guest"],
+        repo: "--repo=guest",
+      }),
+    ).toEqual([
+      "issue",
+      "create",
+      "--title=--title=guest",
+      "--body=--body=guest",
+      "--label=--label=guest",
+      "--assignee=--assignee=guest",
+      "--repo=--repo=guest",
+    ]);
+  });
+
+  test("fences guest-controlled CLI operands from option parsing", () => {
+    expect(buildCliArgv("rg", "search", { pattern: "--pre=/bin/sh", paths: ["src"] })).toEqual([
+      "-e",
+      "--pre=/bin/sh",
+      "--",
+      "src",
+    ]);
+    expect(buildCliArgv("grep", "search", { pattern: "--include=*.ts", paths: ["src"] })).toEqual([
+      "-e",
+      "--include=*.ts",
+      "--",
+      "src",
+    ]);
+
+    expect(() => buildCliArgv("find", "files", { path: "-delete" })).toThrow(
+      "path must not be empty or start with '-'",
+    );
+    expect(() => buildCliArgv("git", "push", { remote: "--receive-pack=/tmp/payload" })).toThrow(
+      "remote must not be empty or start with '-'",
+    );
+    expect(() => buildCliArgv("git", "pull", { branch: "--upload-pack=/tmp/payload" })).toThrow(
+      "branch must not be empty or start with '-'",
+    );
+    expect(() => buildCliArgv("git", "diff", { ref: "--output=/tmp/evil" })).toThrow(
+      "ref must not be empty or start with '-'",
+    );
+    expect(() => buildCliArgv("ls", "list", { path: "--help" })).toThrow(
+      "path must not be empty or start with '-'",
+    );
+    expect(() => buildCliArgv("vitest", "run", { paths: ["--runInBand"] })).toThrow(
+      "paths must not contain empty operands or operands starting with '-'",
+    );
+    expect(() => buildCliArgv("oxfmt", "check", { paths: ["--write"] })).toThrow(
+      "paths must not contain empty operands or operands starting with '-'",
+    );
+    expect(() => buildCliArgv("oxlint", "run", { paths: ["--fix"] })).toThrow(
+      "paths must not contain empty operands or operands starting with '-'",
+    );
+  });
+
+  test("read-only git operations pass fenced operands to the host", async () => {
+    const cwd = tempProject();
+    writeFileSync(
+      join(cwd, "diff"),
+      "process.stdout.write(JSON.stringify(process.argv.slice(2)));\n",
+    );
+    const result = await new QuickJsExecutor({ timeout: 10_000 }).execute(
+      "return await cli.git.diff({ ref: 'HEAD' });",
+      {
+        cli: createCliBindings(
+          { git: { backend: "host", command: process.execPath, operations: ["diff"] } },
+          cwd,
+        ),
+      },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(JSON.parse(String((result.result as { stdout: string }).stdout))).toEqual(["HEAD"]);
   });
 
   test("validates runtime argument shapes", () => {
@@ -637,20 +725,20 @@ describe("cli command capabilities", () => {
     expect(stderr).toContain("[Output truncated");
   });
 
-  test("host commands receive authentication-related environment", async () => {
+  test("GitHub commands receive authentication-related environment", async () => {
     const cwd = tempProject();
     writeFileSync(
-      join(cwd, "status"),
+      join(cwd, "issue"),
       "process.stdout.write(JSON.stringify({ HOME: process.env.HOME, GH_TOKEN: process.env.GH_TOKEN }));\n",
     );
     const previousToken = process.env.GH_TOKEN;
     process.env.GH_TOKEN = "test-token";
     try {
       const result = await new QuickJsExecutor({ timeout: 10_000 }).execute(
-        "return await cli.git.status({});",
+        "return await cli.gh.issueView({ number: 1 });",
         {
           cli: createCliBindings(
-            { git: { backend: "host", command: process.execPath, operations: ["status"] } },
+            { gh: { backend: "host", command: process.execPath, operations: ["issueView"] } },
             cwd,
           ),
         },
@@ -664,6 +752,37 @@ describe("cli command capabilities", () => {
     } finally {
       if (previousToken === undefined) delete process.env.GH_TOKEN;
       else process.env.GH_TOKEN = previousToken;
+    }
+  });
+
+  test("non-GitHub host commands do not receive GitHub tokens", async () => {
+    const cwd = tempProject();
+    writeFileSync(
+      join(cwd, "status"),
+      "process.stdout.write(JSON.stringify({ GH_TOKEN: process.env.GH_TOKEN, GITHUB_TOKEN: process.env.GITHUB_TOKEN }));\n",
+    );
+    const previousGhToken = process.env.GH_TOKEN;
+    const previousGithubToken = process.env.GITHUB_TOKEN;
+    process.env.GH_TOKEN = "test-gh-token";
+    process.env.GITHUB_TOKEN = "test-github-token";
+    try {
+      const result = await new QuickJsExecutor({ timeout: 10_000 }).execute(
+        "return await cli.git.status({});",
+        {
+          cli: createCliBindings(
+            { git: { backend: "host", command: process.execPath, operations: ["status"] } },
+            cwd,
+          ),
+        },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(JSON.parse(String((result.result as { stdout: string }).stdout))).toEqual({});
+    } finally {
+      if (previousGhToken === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = previousGhToken;
+      if (previousGithubToken === undefined) delete process.env.GITHUB_TOKEN;
+      else process.env.GITHUB_TOKEN = previousGithubToken;
     }
   });
 

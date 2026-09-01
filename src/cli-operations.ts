@@ -167,7 +167,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         ...(args.staged ? ["--cached"] : []),
         ...(args.stat ? ["--stat"] : []),
         ...(args.nameOnly ? ["--name-only"] : []),
-        ...optionalString(args.ref, "ref"),
+        ...optionalOperand(args.ref, "ref"),
         ...pathspec(args.paths),
       ],
     },
@@ -204,7 +204,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         "show",
         ...(args.stat ? ["--stat"] : []),
         ...(args.nameOnly ? ["--name-only"] : []),
-        ...optionalString(args.ref, "ref"),
+        ...optionalOperand(args.ref, "ref"),
       ],
     },
     remote: {
@@ -229,7 +229,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         "rev-parse",
         ...(args.showTopLevel ? ["--show-toplevel"] : []),
         ...(args.isInsideWorkTree ? ["--is-inside-work-tree"] : []),
-        ...optionalString(args.ref, "ref"),
+        ...optionalOperand(args.ref, "ref"),
       ],
     },
     add: {
@@ -266,8 +266,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         "commit",
         ...(args.all ? ["--all"] : []),
         ...(args.amend ? ["--amend"] : []),
-        "-m",
-        requiredString(args, "message"),
+        ...stringFlag("--message", requiredString(args, "message"), "message"),
       ],
     },
     push: {
@@ -285,8 +284,10 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         "push",
         ...(args.setUpstream ? ["--set-upstream"] : []),
         ...(args.tags ? ["--tags"] : []),
-        ...optionalString(args.remote, "remote"),
-        ...optionalString(args.branch, "branch"),
+        ...positionalsWithDelimiter([
+          [args.remote, "remote"],
+          [args.branch, "branch"],
+        ]),
       ],
     },
     pull: {
@@ -304,8 +305,10 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         "pull",
         ...(args.rebase ? ["--rebase"] : []),
         ...(args.ffOnly ? ["--ff-only"] : []),
-        ...optionalString(args.remote, "remote"),
-        ...optionalString(args.branch, "branch"),
+        ...positionalsWithDelimiter([
+          [args.remote, "remote"],
+          [args.branch, "branch"],
+        ]),
       ],
     },
     switch: {
@@ -321,12 +324,15 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         },
         ["branch"],
       ),
-      toArgv: (args) => [
-        "switch",
-        ...(args.create ? ["--create"] : []),
-        ...(args.detach ? ["--detach"] : []),
-        requiredString(args, "branch"),
-      ],
+      toArgv: (args) => {
+        const branch = safeOperand(requiredString(args, "branch"), "branch");
+        return [
+          "switch",
+          ...(args.create ? [`--create=${branch}`] : []),
+          ...(args.detach ? ["--detach"] : []),
+          ...(args.create ? [] : ["--", branch]),
+        ];
+      },
     },
     checkout: {
       effect: "write",
@@ -336,7 +342,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       inputSchema: obj({ branch: s("Branch or tree-ish."), paths: sa("Paths to check out.") }),
       toArgv: (args) => [
         "checkout",
-        ...optionalString(args.branch, "branch"),
+        ...optionalOperand(args.branch, "branch"),
         ...pathspec(args.paths),
       ],
     },
@@ -353,7 +359,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       toArgv: (args) => [
         "restore",
         ...(args.staged ? ["--staged"] : []),
-        ...stringFlag("--source", args.source, "source"),
+        ...stringEqualsFlag("--source", args.source, "source"),
         ...pathspec(args.paths),
       ],
     },
@@ -370,7 +376,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       toArgv: (args) => [
         "reset",
         ...resetMode(args.mode),
-        ...optionalString(args.ref, "ref"),
+        ...optionalOperand(args.ref, "ref"),
         ...pathspec(args.paths),
       ],
     },
@@ -389,8 +395,8 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         "stash",
         ...stashCommand(args.command),
         ...(args.includeUntracked ? ["--include-untracked"] : []),
-        ...stringFlag("-m", args.message, "message"),
-        ...optionalString(args.stash, "stash"),
+        ...stringFlag("--message", args.message, "message"),
+        ...optionalOperand(args.stash, "stash"),
       ],
     },
     tag: {
@@ -409,8 +415,8 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         ...(args.delete ? ["--delete"] : []),
         ...(args.list ? ["--list"] : []),
         ...(args.message ? ["-a"] : []),
-        ...optionalString(args.name, "name"),
-        ...stringFlag("-m", args.message, "message"),
+        ...stringFlag("--message", args.message, "message"),
+        ...positionalsWithDelimiter([[args.name, "name"]]),
       ],
     },
   },
@@ -474,8 +480,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       toArgv: (args) => [
         "issue",
         "create",
-        "--title",
-        requiredString(args, "title"),
+        ...stringFlag("--title", requiredString(args, "title"), "title"),
         ...stringFlag("--body", args.body, "body"),
         ...stringArrayFlag("--label", args.label),
         ...stringArrayFlag("--assignee", args.assignee),
@@ -541,8 +546,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         "issue",
         "comment",
         requiredNumber(args, "number"),
-        "--body",
-        requiredString(args, "body"),
+        ...stringFlag("--body", requiredString(args, "body"), "body"),
         ...repo(args),
       ],
     },
@@ -797,9 +801,10 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         ...(args.lineNumber ? ["--line-number"] : []),
         ...(args.hidden ? ["--hidden"] : []),
         ...numberFlag("--max-count", args.maxCount),
-        ...stringArrayFlag("--glob", args.glob),
+        ...stringEqualsArrayFlag("--glob", args.glob, "glob"),
+        "-e",
         requiredString(args, "pattern"),
-        ...stringArray(args.paths),
+        ...pathspec(args.paths),
       ],
     },
   },
@@ -816,9 +821,10 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
         type: findTypeSchema,
       }),
       toArgv: (args) => [
-        stringArg(args.path, "."),
+        "--",
+        safeStringArg(args.path, ".", "path"),
         ...numberFlag("-maxdepth", args.maxDepth),
-        ...(args.name === undefined ? [] : ["-name", stringArg(args.name, "", "name")]),
+        ...(args.name === undefined ? [] : ["-name", safeOperand(args.name, "name")]),
         ...findType(args.type),
       ],
     },
@@ -841,8 +847,9 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       toArgv: (args) => [
         ...(args.recursive ? ["-R"] : []),
         ...(args.ignoreCase ? ["-i"] : []),
+        "-e",
         requiredString(args, "pattern"),
-        ...stringArray(args.paths),
+        ...pathspec(args.paths),
       ],
     },
   },
@@ -860,7 +867,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       toArgv: (args) => [
         ...(args.all ? ["-a"] : []),
         ...(args.long ? ["-l"] : []),
-        ...(args.path === undefined ? [] : [stringArg(args.path, ".")]),
+        ...(args.path === undefined ? [] : ["--", safeStringArg(args.path, ".", "path")]),
       ],
     },
   },
@@ -877,9 +884,9 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       }),
       toArgv: (args) => [
         "run",
-        ...stringArray(args.paths),
         ...(args.update ? ["--update"] : []),
         ...reporter(args.reporter),
+        ...pathspec(args.paths),
       ],
     },
   },
@@ -900,7 +907,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       docs: "Check formatting with oxfmt without writing changes.",
       params: ["paths"],
       inputSchema: obj({ paths: sa("Paths to check.") }),
-      toArgv: (args) => [...stringArray(args.paths), "--check"],
+      toArgv: (args) => ["--check", ...pathspec(args.paths)],
     },
     write: {
       effect: "write",
@@ -908,7 +915,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       docs: "Format files in place with oxfmt.",
       params: ["paths"],
       inputSchema: obj({ paths: sa("Paths to format.") }),
-      toArgv: (args) => [...stringArray(args.paths), "--write"],
+      toArgv: (args) => ["--write", ...pathspec(args.paths)],
     },
   },
   oxlint: {
@@ -925,7 +932,7 @@ export const CLI_OPERATIONS: Record<string, Record<string, CliOperationDefinitio
       toArgv: (args) => [
         ...stringFlag("--deny", args.deny, "deny"),
         ...(args.vitestPlugin ? ["--vitest-plugin"] : []),
-        ...stringArray(args.paths),
+        ...pathspec(args.paths),
       ],
     },
   },
@@ -949,10 +956,8 @@ function requiredNumber(args: Record<string, unknown>, key: string): string {
     throw new Error(`${key} must be an integer`);
   return String(value);
 }
-function stringArg(value: unknown, fallback: string, key = "path"): string {
-  if (value === undefined) return fallback;
-  if (typeof value !== "string") throw new Error(`${key} must be a string`);
-  return value;
+function safeStringArg(value: unknown, fallback: string, key: string): string {
+  return safeOperand(value === undefined ? fallback : value, key);
 }
 function stringArray(value: unknown, key = "paths"): string[] {
   if (value === undefined) return [];
@@ -967,17 +972,40 @@ function numberFlag(flag: string, value: unknown): string[] {
   return [flag, String(value)];
 }
 function stringArrayFlag(flag: string, value: unknown): string[] {
-  return stringArray(value, flag).flatMap((v) => [flag, v]);
+  return stringArray(value, flag).map((v) => `${flag}=${v}`);
 }
-function optionalString(value: unknown, key: string): string[] {
+function optionalOperand(value: unknown, key: string): string[] {
   if (value === undefined) return [];
-  if (typeof value !== "string") throw new Error(`${key} must be a string`);
-  return [value];
+  return [safeOperand(value, key)];
+}
+function positionalsWithDelimiter(values: Array<[unknown, string]>): string[] {
+  const operands = values.flatMap(([value, key]) => optionalOperand(value, key));
+  return operands.length === 0 ? [] : ["--", ...operands];
+}
+function safeOperand(value: unknown, key: string): string {
+  if (typeof value !== "string" || value.length === 0 || value.startsWith("-")) {
+    throw new Error(`${key} must not be empty or start with '-'`);
+  }
+  return value;
+}
+function stringEqualsFlag(flag: string, value: unknown, key: string): string[] {
+  if (value === undefined) return [];
+  return [`${flag}=${safeOperand(value, key)}`];
+}
+function stringEqualsArrayFlag(flag: string, value: unknown, key: string): string[] {
+  if (value === undefined) return [];
+  return stringArray(value, key).map((v) => `${flag}=${nonEmptyString(v, key)}`);
+}
+function nonEmptyString(value: unknown, key: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${key} must not be empty`);
+  }
+  return value;
 }
 function stringFlag(flag: string, value: unknown, key: string): string[] {
   if (value === undefined) return [];
   if (typeof value !== "string") throw new Error(`${key} must be a string`);
-  return [flag, value];
+  return [`${flag}=${value}`];
 }
 function resetMode(value: unknown): string[] {
   if (value === undefined) return [];
@@ -991,13 +1019,18 @@ function stashCommand(value: unknown): string[] {
   throw new Error("command must be one of push, pop, apply, list, drop, clear");
 }
 function pathspec(value: unknown): string[] {
-  const paths = stringArray(value);
+  const paths = safeOperandArray(value);
   return paths.length === 0 ? [] : ["--", ...paths];
 }
+function safeOperandArray(value: unknown, key = "paths"): string[] {
+  const values = stringArray(value, key);
+  if (values.some((v) => v.length === 0 || v.startsWith("-"))) {
+    throw new Error(`${key} must not contain empty operands or operands starting with '-'`);
+  }
+  return values;
+}
 function repo(args: Record<string, unknown>): string[] {
-  if (args.repo === undefined) return [];
-  if (typeof args.repo !== "string") throw new Error("repo must be a string");
-  return ["--repo", args.repo];
+  return stringFlag("--repo", args.repo, "repo");
 }
 function repoApiPath(value: unknown): string {
   if (value === undefined) return "repos/{owner}/{repo}";
