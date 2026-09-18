@@ -176,6 +176,8 @@ describe("CI publish workflow", () => {
     expect(workflow).toContain("npm stage publish --access public");
     expect(workflow).not.toMatch(/^\s+- run: npm publish\b/m);
     expect(workflow).toContain("npm@^11.15.0");
+    expect(workflow.indexOf("npm ci")).toBeLessThan(workflow.indexOf("npm@^11.15.0"));
+    expect(workflow.indexOf("npm@^11.15.0")).toBeLessThan(workflow.indexOf("npm stage publish"));
     expect(workflow).toContain('registry-url: "https://registry.npmjs.org"');
     expect(workflow).toContain("package-manager-cache: false");
   });
