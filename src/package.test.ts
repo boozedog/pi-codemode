@@ -75,6 +75,11 @@ describe("package metadata", () => {
     expect(pkg.scripts?.["publish:npm"]).toBeUndefined();
   });
 
+  test("pins lockfile generation to legacy-peer-deps so CI npm ci matches", () => {
+    const npmrc = readFileSync(join(process.cwd(), ".npmrc"), "utf8");
+    expect(npmrc).toMatch(/^legacy-peer-deps=true$/m);
+  });
+
   test("uses an HTTPS repository URL for provenance source matching", () => {
     const pkg = packageJson() as PackageJson & { repository?: { url?: string } };
 
