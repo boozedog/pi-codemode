@@ -129,11 +129,15 @@ describe("tag-based distribution docs", () => {
     expect(readme).not.toMatch(/logged in to npm/i);
     expect(readme).toContain("publish.yml");
     expect(readme).toContain("trusted publish");
+    expect(readme).toContain("npm stage publish");
+    expect(readme).toContain("npm stage approve");
+    expect(readme).toMatch(/stage-only|staged publishing/i);
     expect(readme).toContain("workflow_dispatch");
     expect(readme).toContain("pi-package");
     expect(readme).toContain("pi install npm:@boozedog/pi-codemode");
     expect(readme).toMatch(/disallow tokens/i);
     expect(readme).not.toMatch(/\bconsider\b.*disallow tokens/i);
+    expect(readme).not.toMatch(/allowed actions: `npm publish`/);
   });
 
   test("documents the dependency pinning policy", () => {
@@ -169,7 +173,9 @@ describe("CI publish workflow", () => {
     expect(workflow).not.toMatch(/NPM_TOKEN/i);
     expect(workflow).not.toMatch(/NODE_AUTH_TOKEN/i);
     expect(workflow).not.toContain("--provenance");
-    expect(workflow).toContain("npm publish --access public");
+    expect(workflow).toContain("npm stage publish --access public");
+    expect(workflow).not.toMatch(/^\s+- run: npm publish\b/m);
+    expect(workflow).toContain("npm@^11.15.0");
     expect(workflow).toContain('registry-url: "https://registry.npmjs.org"');
     expect(workflow).toContain("package-manager-cache: false");
   });

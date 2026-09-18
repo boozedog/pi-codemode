@@ -50,6 +50,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
+      - run: npm install -g npm@^11.15.0
       - run: npm ci
       - run: npm run check
 
@@ -61,4 +62,4 @@ jobs:
           PKG="$(node -p "require('./package.json').version")"
           test "$TAG" = "v$PKG"
 
-      - run: npm publish --access public
+      - run: npm stage publish --access public
