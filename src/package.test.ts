@@ -185,6 +185,7 @@ describe("CI publish workflow", () => {
     expect(workflow.indexOf("npm@^11.15.0")).toBeLessThan(workflow.indexOf("npm stage publish"));
     expect(workflow).toContain('registry-url: "https://registry.npmjs.org"');
     expect(workflow).toContain("package-manager-cache: false");
+    expect(workflow).toMatch(/apt-get install[^\n]*ripgrep/);
   });
 
   test("uses setup-node v7 for OIDC trusted publishing with registry-url", () => {

@@ -31,6 +31,15 @@ function systemCommand(name: string): string {
   return execFileSync("sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).trim();
 }
 
+function commandOnPath(name: string): boolean {
+  try {
+    systemCommand(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe("cli command capabilities", () => {
   test("type definitions include configured cli operations only", () => {
     const types = generateBuiltinTypeDefs({
@@ -127,22 +136,25 @@ describe("cli command capabilities", () => {
     expect(result.result).toMatchObject({ json: { number: 1, title: "bug" } });
   });
 
-  test("runs configured host-backed ripgrep with typed args", async () => {
-    const cwd = tempProject();
-    writeFileSync(join(cwd, "a.txt"), "alpha\nbeta\n");
-    const bindings = {
-      cli: createCliBindings({ rg: { backend: "host", operations: ["search"] } }, cwd),
-    };
+  test.skipIf(!commandOnPath("rg"))(
+    "runs configured host-backed ripgrep with typed args",
+    async () => {
+      const cwd = tempProject();
+      writeFileSync(join(cwd, "a.txt"), "alpha\nbeta\n");
+      const bindings = {
+        cli: createCliBindings({ rg: { backend: "host", operations: ["search"] } }, cwd),
+      };
 
-    const result = await new QuickJsExecutor({ timeout: 10_000 }).execute(
-      'return await cli.rg.search({ pattern: "alpha", paths: ["a.txt"], lineNumber: true });',
-      bindings,
-    );
+      const result = await new QuickJsExecutor({ timeout: 10_000 }).execute(
+        'return await cli.rg.search({ pattern: "alpha", paths: ["a.txt"], lineNumber: true });',
+        bindings,
+      );
 
-    expect(result.error).toBeUndefined();
-    expect(result.result).toMatchObject({ exitCode: 0 });
-    expect(String((result.result as { stdout: string }).stdout)).toContain("alpha");
-  });
+      expect(result.error).toBeUndefined();
+      expect(result.result).toMatchObject({ exitCode: 0 });
+      expect(String((result.result as { stdout: string }).stdout)).toContain("alpha");
+    },
+  );
 
   test("rejects unconfigured operations before execution", async () => {
     const cwd = tempProject();

@@ -50,6 +50,9 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
+      - name: Install host CLIs used by tests
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - run: npm ci
       - run: npm run check
 
