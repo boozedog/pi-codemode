@@ -13,6 +13,8 @@ export interface CodemodeConfig {
     type: ExecutorKind;
     timeoutMs: number;
   };
+  /** When true in the global file, project mode/cli overrides are ignored. */
+  lock?: boolean;
   mcp?: {
     servers?: Record<string, unknown>;
   };
@@ -40,6 +42,12 @@ type ConfigInput = Omit<Partial<CodemodeConfig>, "executor"> & {
   executor?: Partial<CodemodeConfig["executor"]>;
 };
 
+interface ReadConfigResult {
+  config: ConfigInput;
+  /** Top-level keys present in the JSON file (not inferred defaults). */
+  explicitKeys: Set<string>;
+}
+
 const DEFAULT_CONFIG: CodemodeConfig = {
   mode: "on",
   executor: {
@@ -50,30 +58,39 @@ const DEFAULT_CONFIG: CodemodeConfig = {
 
 const EXECUTOR_KINDS = new Set<ExecutorKind>(["quickjs", "deno"]);
 const CODEMODE_MODES = new Set<CodemodeMode>(["off", "on", "yolo"]);
+const MODE_PERMISSIVENESS: Record<CodemodeMode, number> = { off: 0, on: 1, yolo: 2 };
 
 /**
  * Load codemode configuration from global and project config files.
  *
  * Global: ~/.pi/agent/codemode.json
  * Project: $PROJECT/.pi/codemode.json
+ *
+ * When the global file explicitly sets `mode` or `cli`, the project file may only
+ * narrow (never widen) those settings. Global `lock: true` ignores project mode/cli.
  */
 export function loadConfig(options: LoadConfigOptions = {}): CodemodeConfig {
   const homeDir = options.homeDir ?? homedir();
   const projectDir = options.projectDir ?? process.cwd();
-  const globalConfig = readConfigFile(join(homeDir, ".pi", "agent", "codemode.json"));
-  const projectConfig = readConfigFile(join(projectDir, ".pi", "codemode.json"));
+  const global = readConfigFile(join(homeDir, ".pi", "agent", "codemode.json"));
+  const project = readConfigFile(join(projectDir, ".pi", "codemode.json"));
 
-  return normalizeConfig(mergeConfig(mergeConfig(DEFAULT_CONFIG, globalConfig), projectConfig));
+  const base = mergeConfig(DEFAULT_CONFIG, global.config);
+  const withPolicy = applyProjectPolicy(base, global, project);
+  return normalizeConfig(withPolicy);
 }
 
-function readConfigFile(path: string): ConfigInput {
-  if (!existsSync(path)) return {};
+function readConfigFile(path: string): ReadConfigResult {
+  if (!existsSync(path)) return { config: {}, explicitKeys: new Set() };
 
   const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
   if (!isRecord(parsed)) {
     throw new Error(`Codemode config must be a JSON object: ${path}`);
   }
-  return parsed as ConfigInput;
+  return {
+    config: parsed as ConfigInput,
+    explicitKeys: new Set(Object.keys(parsed)),
+  };
 }
 
 function mergeConfig(base: ConfigInput, override: ConfigInput): ConfigInput {
@@ -111,6 +128,103 @@ function mergeConfig(base: ConfigInput, override: ConfigInput): ConfigInput {
   };
 }
 
+/**
+ * Merge project settings without widening a global mode/cli pin.
+ * MCP and executor follow the normal shallow merge rules.
+ */
+function applyProjectPolicy(
+  base: ConfigInput,
+  global: ReadConfigResult,
+  project: ReadConfigResult,
+): ConfigInput {
+  const policyLocked = global.explicitKeys.has("lock") && global.config.lock === true;
+  const projectBody = policyLocked ? stripPolicyKeys(project.config) : project.config;
+  const merged = mergeConfig(base, projectBody);
+
+  if (policyLocked) return merged;
+
+  if (global.explicitKeys.has("mode")) {
+    const projectMode = project.explicitKeys.has("mode") ? project.config.mode : undefined;
+    merged.mode = narrowMode(base.mode ?? DEFAULT_CONFIG.mode, projectMode);
+  }
+
+  if (global.explicitKeys.has("cli")) {
+    if (project.explicitKeys.has("cli") && project.config.cli) {
+      merged.cli = intersectCli(base.cli, project.config.cli);
+    } else {
+      merged.cli = base.cli;
+    }
+  }
+
+  return merged;
+}
+
+function stripPolicyKeys(config: ConfigInput): ConfigInput {
+  const { mode: _mode, cli: _cli, lock: _lock, ...rest } = config;
+  return rest;
+}
+
+function narrowMode(globalMode: CodemodeMode, projectMode?: CodemodeMode): CodemodeMode {
+  if (!projectMode) return globalMode;
+  const globalLevel = MODE_PERMISSIVENESS[globalMode];
+  const projectLevel = MODE_PERMISSIVENESS[projectMode];
+  return projectLevel <= globalLevel ? projectMode : globalMode;
+}
+
+function intersectCli(
+  globalCli: CliConfig | undefined,
+  projectCli: CliConfig,
+): CliConfig | undefined {
+  if (!globalCli) return undefined;
+
+  const result: CliConfig = {};
+  for (const [toolName, globalTool] of Object.entries(globalCli)) {
+    const projectTool = projectCli[toolName];
+    if (!projectTool) continue;
+
+    const intersectedOps = intersectOperations(globalTool.operations, projectTool.operations);
+    if (intersectedOps === undefined) continue;
+
+    result[toolName] = {
+      backend: globalTool.backend,
+      ...(globalTool.command !== undefined ? { command: globalTool.command } : {}),
+      operations: intersectedOps,
+    };
+  }
+  return Object.keys(result).length > 0 ? result : {};
+}
+
+function intersectOperations(
+  globalOps: string[] | Record<string, CliOperationConfig>,
+  projectOps: string[] | Record<string, CliOperationConfig>,
+): string[] | Record<string, CliOperationConfig> | undefined {
+  if (Array.isArray(globalOps)) {
+    const projectNames = normalizeOperationNames(projectOps);
+    const kept = globalOps.filter((op) => projectNames.has(op));
+    return kept.length > 0 ? kept : undefined;
+  }
+
+  const projectNames = normalizeOperationNames(projectOps);
+  const result: Record<string, CliOperationConfig> = {};
+  for (const [name, config] of Object.entries(globalOps)) {
+    if (!projectNames.has(name)) continue;
+    const projectConfig = Array.isArray(projectOps)
+      ? {}
+      : (projectOps as Record<string, CliOperationConfig>)[name];
+    result[name] = {
+      ...config,
+      ...projectConfig,
+      timeoutMs: config.timeoutMs ?? projectConfig?.timeoutMs,
+    };
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function normalizeOperationNames(ops: string[] | Record<string, CliOperationConfig>): Set<string> {
+  if (Array.isArray(ops)) return new Set(ops);
+  return new Set(Object.keys(ops));
+}
+
 function normalizeConfig(config: ConfigInput): CodemodeConfig {
   const mode = config.mode ?? DEFAULT_CONFIG.mode;
   if (!CODEMODE_MODES.has(mode)) {
@@ -126,6 +240,7 @@ function normalizeConfig(config: ConfigInput): CodemodeConfig {
   }
 
   const cli = normalizeCliConfig(config.cli);
+  const lock = config.lock === true ? true : undefined;
 
   return {
     ...config,
@@ -135,6 +250,7 @@ function normalizeConfig(config: ConfigInput): CodemodeConfig {
       timeoutMs: executor.timeoutMs ?? DEFAULT_CONFIG.executor.timeoutMs,
     },
     cli,
+    lock,
   };
 }
 

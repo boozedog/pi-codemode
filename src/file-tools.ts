@@ -85,6 +85,7 @@ export function createFileTools(options: FileToolsOptions) {
 
     write(params: WriteParams): void {
       const fullPath = validateAndResolvePath(params.path, scope);
+      assertPolicyWritablePath(fullPath, scope);
 
       // Create parent directories if needed
       const dir = dirname(fullPath);
@@ -102,6 +103,7 @@ export function createFileTools(options: FileToolsOptions) {
      */
     create(params: WriteParams): void {
       const fullPath = validateAndResolvePath(params.path, scope);
+      assertPolicyWritablePath(fullPath, scope);
 
       // Create parent directories if needed
       const dir = dirname(fullPath);
@@ -118,6 +120,7 @@ export function createFileTools(options: FileToolsOptions) {
 
     replace_in_file(params: EditParams): string {
       const fullPath = validateAndResolvePath(params.path, scope);
+      assertPolicyWritablePath(fullPath, scope);
       let content = readFileSync(fullPath, "utf-8");
 
       // Track replacement positions to detect overlaps
@@ -296,6 +299,27 @@ function resolvePathThroughSymlinks(
   return rebuilt;
 }
 
+/** Reject writes to policy files under the project root when scoped (on mode). */
+function assertPolicyWritablePath(fullPath: string, scope: FileScope): void {
+  if (scope.unrestricted) return;
+
+  const resolvedRoot = normalize(resolve(scope.root));
+  const resolvedTarget = normalize(resolve(fullPath));
+  if (resolvedTarget === resolvedRoot) {
+    throw new Error("Path is policy-protected");
+  }
+
+  const rel = relative(resolvedRoot, resolvedTarget);
+  if (
+    rel === ".mcp.json" ||
+    rel === ".pi" ||
+    rel.startsWith(`.pi${sep}`) ||
+    rel.split(/[\\/]/).includes(".pi")
+  ) {
+    throw new Error("Path is policy-protected");
+  }
+}
+
 /** Platform-correct containment: relative path must not escape and must not be absolute. */
 function assertPathInsideRoot(target: string, root: string, userPath: string): void {
   const resolvedTarget = normalize(resolve(target));
@@ -354,10 +378,11 @@ function applyUnifiedPatch(patch: string, scope: FileScope): string {
   }> = [];
   const statuses: string[] = [];
   // Resolve and validate every path before touching any file.
-  const resolved = files.map((file) => ({
-    file,
-    fullPath: validateAndResolvePath(file.path, scope),
-  }));
+  const resolved = files.map((file) => {
+    const fullPath = validateAndResolvePath(file.path, scope);
+    assertPolicyWritablePath(fullPath, scope);
+    return { file, fullPath };
+  });
   for (let index = 0; index < resolved.length; index++) {
     const { file, fullPath } = resolved[index];
     const original = existsSync(fullPath) ? readFileSync(fullPath, "utf-8") : "";

@@ -7,6 +7,7 @@ import { join } from "node:path";
 type TestConfig = {
   mode: "off" | "on" | "yolo";
   executor: { type: "quickjs"; timeoutMs: number };
+  lock?: boolean;
   cli?: Record<string, { backend: "host"; operations: string[] }>;
 };
 
@@ -966,6 +967,85 @@ describe("codemodeExtension", () => {
 
     expect(refresh).toHaveBeenCalled();
     expect(shutdown).not.toHaveBeenCalled();
+  });
+
+  test("/codemode mode changes no-op when policy is locked", async () => {
+    loadConfig.mockReturnValue({
+      mode: "on",
+      lock: true,
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    });
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, commands, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+    await handlers.get("session_start")?.({}, ctx);
+    pi.setActiveTools.mockClear();
+    ctx.ui.notify.mockClear();
+
+    await commands.get("codemode")?.handler("yolo", ctx);
+
+    expect(pi.setActiveTools).not.toHaveBeenCalled();
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("policy is locked"),
+      "warning",
+    );
+  });
+
+  test("/codemode refresh still reloads config when policy is locked", async () => {
+    loadConfig.mockReturnValue({
+      mode: "on",
+      lock: true,
+      executor: { type: "quickjs", timeoutMs: 1234 },
+      cli: { git: { backend: "host", operations: ["status"] } },
+    });
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, commands, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+    await handlers.get("session_start")?.({}, ctx);
+
+    await commands.get("codemode")?.handler("refresh", ctx);
+
+    expect(loadConfig).toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "on",
+        lock: true,
+        cli: { git: { backend: "host", operations: ["status"] } },
+      }),
+    );
+  });
+
+  test("on mode patch tools reject writes under .pi/", async () => {
+    loadConfig.mockReturnValue({
+      mode: "on",
+      executor: { type: "quickjs", timeoutMs: 1234 },
+    });
+    const root = mkdtempSync(join(tmpdir(), "codemode-index-pi-deny-"));
+    const priorCwd = process.cwd();
+    try {
+      mkdirSync(join(root, ".pi"), { recursive: true });
+      writeFileSync(join(root, ".pi", "codemode.json"), '{"mode":"on"}');
+      process.chdir(root);
+
+      const { default: codemodeExtension } = await import("./index.js");
+      const { pi, handlers, ctx } = createPiMock();
+      codemodeExtension(pi as never);
+      await handlers.get("session_start")?.({}, ctx);
+
+      const replaceInFile = pi.registerTool.mock.calls
+        .map((call) => call[0])
+        .find((tool) => tool.name === "replace_in_file");
+      await expect(
+        replaceInFile.execute("call-1", {
+          path: ".pi/codemode.json",
+          edits: [{ oldText: '"on"', newText: '"yolo"' }],
+        }),
+      ).rejects.toThrow("Path is policy-protected");
+      expect(readFileSync(join(root, ".pi", "codemode.json"), "utf-8")).toBe('{"mode":"on"}');
+    } finally {
+      process.chdir(priorCwd);
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("MCP tools/list_changed notification triggers a debounced tool re-list", async () => {

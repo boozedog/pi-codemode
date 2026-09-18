@@ -59,6 +59,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   // --- State ---
 
   let currentMode: CodemodeMode = "off";
+  let policyLocked = false;
   let originalTools: string[] = [];
   let mcpClient: McpClient | undefined;
   let mcpServers: McpServerInfo[] = [];
@@ -78,6 +79,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   let config: CodemodeConfig;
   try {
     config = loadConfig();
+    policyLocked = config.lock === true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const warning = `Codemode: config load failed: ${message}`;
@@ -250,6 +252,13 @@ export default function codemodeExtension(pi: ExtensionAPI) {
         ctx.ui.notify("Usage: /codemode [on|yolo|off|refresh]", "warning");
         return;
       }
+      if (policyLocked) {
+        ctx.ui.notify(
+          "Codemode policy is locked by ~/.pi/agent/codemode.json; mode changes are ignored",
+          "warning",
+        );
+        return;
+      }
       applyMode(mode ?? (currentMode === "off" ? "on" : "off"), ctx);
     },
   });
@@ -356,6 +365,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
       // 3. Commit the new config, then regenerate declarations and the index.
       config = nextConfig;
+      policyLocked = config.lock === true;
       regenerateDeclarations();
 
       // 4. Report the capability summary (or failures).

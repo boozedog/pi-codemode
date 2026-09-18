@@ -233,10 +233,14 @@ Use `codemode.list_mcp_servers()` to see available namespaces and `codemode.list
 
 Codemode loads JSON config from:
 
-1. `~/.pi/agent/codemode.json`
-2. `$PROJECT/.pi/codemode.json`
+1. `~/.pi/agent/codemode.json` (global policy — operator-controlled)
+2. `$PROJECT/.pi/codemode.json` (project overlay)
 
-Project config overrides global config. MCP servers are loaded from `~/.config/mcp/mcp.json` (global), then project `.mcp.json`, then `mcp.servers` in the Codemode config. URL servers try Streamable HTTP first and fall back to legacy SSE when that handshake fails for a transport reason. Optional `headers`, `bearerToken`, or adapter-style `bearerTokenEnv` values are sent on both URL transports. Stdio servers use `command`, `args`, `env`, and `cwd`. Tool metadata is cached under `~/.cache/pi-codemode/mcp-metadata.json` so discovery can hydrate without reconnecting. Interactive OAuth browser flows and Pi MCP UI integration are not implemented; pre-auth with `bearerToken`/`bearerTokenEnv`/`headers` or use a stdio server. Copy `examples/codemode.json` to `~/.pi/agent/codemode.json` (global) or `$PROJECT/.pi/codemode.json` (project-local). Project `.pi/` is gitignored personal override space — do not commit it. The example is host-only `cli.*` with no personal MCP servers.
+Global and project settings are shallow-merged for `executor` and `mcp`. **`mode` and `cli` are different:** when the global file explicitly sets `mode` or `cli`, the project file may only **narrow** those values (intersect CLI operations, lower mode permissiveness). A model-written project file cannot widen `on` to `yolo` or add CLI operations absent from the global pin. Set `"lock": true` in the global file to ignore project `mode` and `cli` entirely (MCP overlay from the project file still applies). `/codemode refresh` reloads config with the same non-widening rules; `/codemode on|off|yolo` no-ops with a warning when policy is locked.
+
+In `on` mode, file writes through codemode patch tools are scoped to the project root but **denied** under `.pi/` and for project-root `.mcp.json`. That blocks minting policy files from inside the write lock; the merge rules above remain authoritative on `session_start` and refresh even if a policy file already exists.
+
+MCP servers are loaded from `~/.config/mcp/mcp.json` (global), then project `.mcp.json`, then `mcp.servers` in the Codemode config. URL servers try Streamable HTTP first and fall back to legacy SSE when that handshake fails for a transport reason. Optional `headers`, `bearerToken`, or adapter-style `bearerTokenEnv` values are sent on both URL transports. Stdio servers use `command`, `args`, `env`, and `cwd`. Tool metadata is cached under `~/.cache/pi-codemode/mcp-metadata.json` so discovery can hydrate without reconnecting. Interactive OAuth browser flows and Pi MCP UI integration are not implemented; pre-auth with `bearerToken`/`bearerTokenEnv`/`headers` or use a stdio server. Copy `examples/codemode.json` to `~/.pi/agent/codemode.json` (global) or `$PROJECT/.pi/codemode.json` (project-local). Project `.pi/` is gitignored personal override space — do not commit it. The example is host-only `cli.*` with no personal MCP servers.
 
 Default config:
 

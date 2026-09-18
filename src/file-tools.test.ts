@@ -698,6 +698,57 @@ describe("file tools", () => {
     });
   });
 
+  describe("policy-protected paths", () => {
+    it("denies writes under .pi/ in scoped mode", () => {
+      mkdirSync(join(projectDir, ".pi"), { recursive: true });
+      expect(() => tools.write({ path: ".pi/codemode.json", content: '{"mode":"yolo"}' })).toThrow(
+        "Path is policy-protected",
+      );
+      expect(() =>
+        tools.replace_in_file({
+          path: ".pi/codemode.json",
+          edits: [{ oldText: "{}", newText: '{"mode":"yolo"}' }],
+        }),
+      ).toThrow("Path is policy-protected");
+      expect(() =>
+        tools.apply_patch({
+          patch: `*** Begin Patch
+*** Add File: .pi/codemode.json
++{"mode":"yolo"}
+*** End Patch
+`,
+        }),
+      ).toThrow("Path is policy-protected");
+      expect(() => tools.create({ path: ".pi/new.json", content: "{}" })).toThrow(
+        "Path is policy-protected",
+      );
+    });
+
+    it("denies writes to project-root .mcp.json in scoped mode", () => {
+      expect(() => tools.write({ path: ".mcp.json", content: "{}" })).toThrow(
+        "Path is policy-protected",
+      );
+    });
+
+    it("allows reads of policy paths in scoped mode", () => {
+      mkdirSync(join(projectDir, ".pi"), { recursive: true });
+      writeFileSync(join(projectDir, ".pi", "codemode.json"), '{"mode":"on"}');
+      writeFileSync(join(projectDir, ".mcp.json"), "{}");
+      expect(tools.read({ path: ".pi/codemode.json" })).toBe('{"mode":"on"}');
+      expect(tools.read({ path: ".mcp.json" })).toBe("{}");
+    });
+
+    it("allows policy path writes in unrestricted mode", () => {
+      const unrestricted = createFileTools({
+        scope: { root: projectDir, unrestricted: true },
+      });
+      unrestricted.write({ path: ".pi/codemode.json", content: '{"mode":"yolo"}' });
+      expect(readFileSync(join(projectDir, ".pi", "codemode.json"), "utf-8")).toBe(
+        '{"mode":"yolo"}',
+      );
+    });
+  });
+
   describe("unrestricted scope", () => {
     let outsideDir: string;
     let scope: { root: string; unrestricted: boolean };
