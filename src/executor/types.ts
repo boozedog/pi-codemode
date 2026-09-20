@@ -22,6 +22,8 @@ export interface CodeExecutor {
       signal?: AbortSignal;
       /** Install the job-only createFile global (set only by runJob()). */
       enableCreateFile?: boolean;
+      /** Install optional jev.ask when TypeSafe is armed. */
+      enableJev?: boolean;
     },
   ): Promise<ExecuteResult>;
   shutdown?(): Promise<void>;

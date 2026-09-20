@@ -10,6 +10,7 @@ import { searchTools } from "./search.js";
 import { createCliBindings } from "./cli.js";
 import { generateToolSignature, generateParamSummary } from "./type-generator.js";
 import type { CliConfig } from "./config.js";
+import type { JevAsk, JevAnswers, JevQuestionsInput } from "./jev/types.js";
 import { createFileTools } from "./file-tools.js";
 import type { McpClient } from "./mcp-client.js";
 import type { McpServerInfo } from "./search.js";
@@ -44,6 +45,9 @@ export interface ToolBindings {
   run_npm_script(params: { script: string; verbose?: boolean }): Promise<string>;
   cli: Record<string, unknown>;
   mcp?: Record<string, unknown>;
+  jev?: {
+    ask(params: { state: unknown; questions: JevQuestionsInput }): Promise<JevAnswers>;
+  };
   progress(message: string): void;
   /** Emit a message to the end user (TUI) or stderr (non-interactive). */
   sendMessage?(params: SendMessageParams): void | Promise<void>;
@@ -67,6 +71,8 @@ export interface ToolBindingsOptions {
   sendMessage?: SendMessageFn;
   /** Enable the job-only createFile binding (set only by runJob()). */
   enableCreateFile?: boolean;
+  /** Optional TypeSafe Jev classifier (guest jev.ask). */
+  jev?: JevAsk;
 }
 
 /**
@@ -77,7 +83,8 @@ export interface ToolBindingsOptions {
  * to ensure operations stay within the project directory.
  */
 export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
-  const { cwd, mcpServers, mcpClient, signal, onUpdate, sendMessage, enableCreateFile } = options;
+  const { cwd, mcpServers, mcpClient, signal, onUpdate, sendMessage, enableCreateFile, jev } =
+    options;
 
   // Create file tools scoped to the project directory
   const fileTools = createFileTools({ projectRoot: cwd });
@@ -240,6 +247,21 @@ export function createToolBindings(options: ToolBindingsOptions): ToolBindings {
         await sendMessage(params);
       }
     },
+
+    ...(jev
+      ? {
+          jev: {
+            ask: async (params: { state: unknown; questions: unknown }) => {
+              if (signal?.aborted) throw new Error("Execution cancelled");
+              return jev.ask(
+                params.state,
+                params.questions as Parameters<JevAsk["ask"]>[1],
+                signal,
+              );
+            },
+          },
+        }
+      : {}),
   };
 
   async function getFreshServerInfo(namespace: string): Promise<McpServerInfo | undefined> {

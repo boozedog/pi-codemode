@@ -31,6 +31,14 @@ describe("system prompt builders", () => {
     expect(prompt).toContain("- github");
   });
 
+  test("includes Jev guidance only when armed", () => {
+    const armed = generateSystemPromptAddition("declare const codemode: {};", "", "on", true);
+    const unarmed = generateSystemPromptAddition("declare const codemode: {};", "", "on", false);
+    expect(armed).toContain("jev.ask(state, questions)");
+    expect(armed).toContain("one factor per question");
+    expect(unarmed).not.toContain("jev.ask(state, questions)");
+  });
+
   test("native off-mode guidance is edit-only", () => {
     const prompt = generateNativeEditGuidance();
     expect(prompt).toContain("## Native Tool Guidance");

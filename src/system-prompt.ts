@@ -5,10 +5,23 @@ import type { CodemodeMode } from "./config.js";
 /**
  * Generate the system prompt addition for codemode.
  */
+export function generateJevPromptAddition(): string {
+  return `\
+### Jev (optional TypeSafe classifier)
+
+\`jev.ask(state, questions)\` runs calibrated **noul**, **choice**, and **score** questions against a sliced state object.
+- Ask **one factor per question**.
+- **Slice state before calling**; do not send whole files.
+- Compose thresholds and filters in TypeScript (\`if\`, \`filter\`, comparisons on returned probabilities).
+- **Do not** use Jev to choose which \`cli.*\` or \`mcp.*\` tools to call.
+`;
+}
+
 export function generateSystemPromptAddition(
   builtinTypeDefs: string,
   mcpSummary: string,
   mode: Exclude<CodemodeMode, "off">,
+  jevArmed = false,
 ): string {
   const modeGuidance =
     mode === "yolo"
@@ -159,7 +172,11 @@ ${generateEditGuidance()}
 - Both \`print()\` output and \`return\` values are included in the result; do not print the same value you return
 - Type errors are caught before execution — fix them based on the error messages
 - Runtime errors are caught and returned — fix your code if you see one
-`;
+${jevArmed ? `\n${generateJevPromptAddition()}` : ""}`;
+}
+
+export function formatJevStatus(armed: boolean): string {
+  return armed ? "Jev: armed" : "Jev: not armed (no TypeSafe API key)";
 }
 
 export function generateNativeEditGuidance(): string {

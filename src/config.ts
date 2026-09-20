@@ -7,6 +7,17 @@ import type { ExecutorKind } from "./executor/index.js";
 
 export type CodemodeMode = "off" | "on" | "yolo";
 
+export interface JevConfig {
+  /** Path to a file containing the TypeSafe API key (trimmed). Prefer env or secrets file for v0. */
+  apiKeyFile?: string;
+  /** HTTP timeout for jev.ask in milliseconds (default 8000). */
+  timeoutMs?: number;
+  /** System One model id (default jev-latest). */
+  model?: string;
+  /** Maximum serialized state size sent to TypeSafe (default 12000 chars). */
+  stateMaxChars?: number;
+}
+
 export interface CodemodeConfig {
   mode: CodemodeMode;
   executor: {
@@ -19,6 +30,7 @@ export interface CodemodeConfig {
     servers?: Record<string, unknown>;
   };
   cli?: CliConfig;
+  jev?: JevConfig;
 }
 
 export type CliConfig = Record<string, CliToolConfig>;
@@ -123,6 +135,13 @@ function mergeConfig(base: ConfigInput, override: ConfigInput): ConfigInput {
         ? {
             ...base.cli,
             ...override.cli,
+          }
+        : undefined,
+    jev:
+      base.jev || override.jev
+        ? {
+            ...base.jev,
+            ...override.jev,
           }
         : undefined,
   };

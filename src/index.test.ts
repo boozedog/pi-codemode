@@ -22,7 +22,11 @@ type McpClientMock = {
 
 type McpClientOptions = { onToolsListChanged?: (serverName: string) => void };
 
-type ExecuteToolOptions = { getTypeDefs?: () => string };
+type ExecuteToolOptions = {
+  getTypeDefs?: () => string;
+  getDescription?: () => string;
+  getJevArmed?: () => boolean;
+};
 
 const {
   loadConfig,
@@ -36,6 +40,8 @@ const {
   executeCode,
   createExecuteTool,
   generateBuiltinTypeDefs,
+  resolveJevApiKey,
+  createJevAsk,
 } = vi.hoisted(() => {
   const shutdown = vi.fn(async () => {});
   const warmCache = vi.fn(async () => []);
@@ -49,8 +55,14 @@ const {
   >(async () => []);
   const createExecuteTool = vi.fn((opts: ExecuteToolOptions) => ({
     name: "codemode",
-    description: "Execute TypeScript against codemode tools",
+    description: opts.getDescription?.() ?? "Execute TypeScript against codemode tools",
     getTypeDefs: opts.getTypeDefs,
+    getDescription: opts.getDescription,
+    getJevArmed: opts.getJevArmed,
+  }));
+  const resolveJevApiKey = vi.fn<() => string | undefined>(() => undefined);
+  const createJevAsk = vi.fn(() => ({
+    ask: vi.fn(async () => ({})),
   }));
   return {
     loadConfig: vi.fn<() => TestConfig>(() => ({
@@ -75,16 +87,34 @@ const {
     refreshServerTools,
     executeCode: vi.fn(),
     createExecuteTool,
-    generateBuiltinTypeDefs: vi.fn(() => "declare const codemode: {};"),
+    generateBuiltinTypeDefs: vi.fn((config?: { jev?: boolean }) =>
+      config?.jev
+        ? "declare const codemode: {};\ndeclare const jev: { ask: unknown };"
+        : "declare const codemode: {};",
+    ),
+    resolveJevApiKey,
+    createJevAsk,
   };
 });
 
 vi.mock("./config.js", () => ({ loadConfig }));
 vi.mock("./mcp-client.js", () => ({ createMcpClient }));
-vi.mock("./execute-tool.js", () => ({
-  createExecuteTool,
-  executeCode,
-}));
+vi.mock("./jev/key.js", () => ({ resolveJevApiKey }));
+vi.mock("./jev/client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./jev/client.js")>();
+  return {
+    ...actual,
+    createJevAsk,
+  };
+});
+vi.mock("./execute-tool.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./execute-tool.js")>();
+  return {
+    ...actual,
+    createExecuteTool,
+    executeCode,
+  };
+});
 vi.mock("./type-generator.js", () => ({
   generateBuiltinTypeDefs,
   generateMcpServerTypeDefs: vi.fn((servers: Array<{ namespace: string }>) =>
@@ -151,6 +181,17 @@ describe("codemodeExtension", () => {
     refresh.mockResolvedValue([]);
     refreshServerTools.mockResolvedValue([]);
     executeCode.mockReset();
+    resolveJevApiKey.mockReset();
+    resolveJevApiKey.mockReturnValue(undefined);
+    createJevAsk.mockReset();
+    createJevAsk.mockImplementation(() => ({
+      ask: vi.fn(async () => ({})),
+    }));
+    generateBuiltinTypeDefs.mockImplementation((config?: { jev?: boolean }) =>
+      config?.jev
+        ? "declare const codemode: {};\ndeclare const jev: { ask: unknown };"
+        : "declare const codemode: {};",
+    );
   });
 
   test("routes default TUI messages to non-context entries and opts into model messages", async () => {
@@ -342,7 +383,10 @@ describe("codemodeExtension", () => {
       "codemode",
       "bash",
     ]);
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode yolo mode enabled", "info");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("Codemode yolo mode enabled"),
+      "info",
+    );
     expect(prompt.systemPrompt).toContain("## Code Mode (yolo)");
     expect(prompt.systemPrompt).toContain("native bash is available");
   });
@@ -617,7 +661,10 @@ describe("codemodeExtension", () => {
     };
 
     expect(pi.setActiveTools).not.toHaveBeenCalled();
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode off — normal Pi tools active", "info");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("Codemode off — normal Pi tools active"),
+      "info",
+    );
     expect(prompt.systemPrompt).toContain("## Native Tool Guidance");
   });
 
@@ -641,7 +688,10 @@ describe("codemodeExtension", () => {
     await handlers.get("session_start")?.({}, ctx);
 
     expect(pi.setActiveTools).toHaveBeenCalledWith(["read", "write", "bash"]);
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode off — normal Pi tools active", "info");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("Codemode off — normal Pi tools active"),
+      "info",
+    );
   });
 
   test("yolo mode degrades when native bash is unavailable", async () => {
@@ -676,7 +726,10 @@ describe("codemodeExtension", () => {
     await handlers.get("session_start")?.({}, ctx);
 
     expect(pi.setActiveTools).not.toHaveBeenCalled();
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode off — normal Pi tools active", "info");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("Codemode off — normal Pi tools active"),
+      "info",
+    );
   });
 
   test("/codemode supports explicit modes and bare off-to-on toggle", async () => {
@@ -790,7 +843,10 @@ describe("codemodeExtension", () => {
 
     await commands.get("codemode")?.handler("yolo", ctx);
 
-    expect(ctx.ui.notify).toHaveBeenCalledWith("Codemode yolo mode enabled", "info");
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      expect.stringContaining("Codemode yolo mode enabled"),
+      "info",
+    );
     expect(ctx.ui.notify).not.toHaveBeenCalledWith("Usage: /codemode [on|yolo|off]", "warning");
     expect(pi.setActiveTools).toHaveBeenCalledWith([
       "read",
@@ -1046,6 +1102,72 @@ describe("codemodeExtension", () => {
       process.chdir(priorCwd);
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("/codemode jev reports not armed when no key resolves", async () => {
+    resolveJevApiKey.mockReturnValue(undefined);
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, commands, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+    ctx.ui.notify.mockClear();
+
+    await commands.get("codemode")?.handler("jev", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Jev: not armed (no TypeSafe API key)", "info");
+    expect(resolveJevApiKey).toHaveBeenCalled();
+  });
+
+  test("/codemode jev reports armed when a key resolves", async () => {
+    resolveJevApiKey.mockReturnValue("typesafe-test-key");
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, commands, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+    ctx.ui.notify.mockClear();
+
+    await commands.get("codemode")?.handler("jev", ctx);
+
+    expect(ctx.ui.notify).toHaveBeenCalledWith("Jev: armed", "info");
+    expect(ctx.ui.notify).not.toHaveBeenCalledWith(
+      expect.stringContaining("typesafe-test-key"),
+      "info",
+    );
+    expect(createJevAsk).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: "typesafe-test-key" }),
+    );
+  });
+
+  test("arms jev types and prompt only when a key resolves", async () => {
+    resolveJevApiKey.mockReturnValue("typesafe-test-key");
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+    await handlers.get("session_start")?.({}, ctx);
+
+    expect(generateBuiltinTypeDefs).toHaveBeenCalledWith(expect.objectContaining({ jev: true }));
+    const getTypeDefs = createExecuteTool.mock.calls.at(-1)?.[0]?.getTypeDefs;
+    expect(getTypeDefs?.()).toContain("declare const jev");
+
+    const prompt = (await handlers.get("before_agent_start")?.({ systemPrompt: "base" })) as {
+      systemPrompt: string;
+    };
+    expect(prompt.systemPrompt).toContain("jev.ask(state, questions)");
+  });
+
+  test("unarmed sessions omit jev from type defs and prompt", async () => {
+    resolveJevApiKey.mockReturnValue(undefined);
+    const { default: codemodeExtension } = await import("./index.js");
+    const { pi, handlers, ctx } = createPiMock();
+    codemodeExtension(pi as never);
+    await handlers.get("session_start")?.({}, ctx);
+
+    expect(generateBuiltinTypeDefs).toHaveBeenCalledWith(expect.objectContaining({ jev: false }));
+    const getTypeDefs = createExecuteTool.mock.calls.at(-1)?.[0]?.getTypeDefs;
+    expect(getTypeDefs?.()).not.toContain("declare const jev");
+
+    const prompt = (await handlers.get("before_agent_start")?.({ systemPrompt: "base" })) as {
+      systemPrompt: string;
+    };
+    expect(prompt.systemPrompt).not.toContain("jev.ask(state, questions)");
   });
 
   test("MCP tools/list_changed notification triggers a debounced tool re-list", async () => {

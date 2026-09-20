@@ -66,6 +66,26 @@ describe("built-in file tool type definitions", () => {
     expect(typeDefs).toContain("Use the top-level visible patch editing tool instead");
   });
 
+  test("declares jev.ask only when armed", () => {
+    const unarmed = generateBuiltinTypeDefs();
+    const armed = generateBuiltinTypeDefs({ jev: true });
+
+    expect(unarmed).not.toContain("declare const jev");
+    expect(armed).toContain("declare const jev");
+    expect(
+      typeCheck(
+        `const answers = await jev.ask("state", { urgent: { type: "noul", instructions: "?" } });`,
+        armed,
+      ).errors,
+    ).toEqual([]);
+    expect(
+      typeCheck(
+        `const answers = await jev.ask("state", { urgent: { type: "noul", instructions: "?" } });`,
+        unarmed,
+      ).errors,
+    ).not.toEqual([]);
+  });
+
   test("interactive type defs do not declare or type-check createFile", () => {
     const typeDefs = generateBuiltinTypeDefs();
     expect(typeDefs).not.toContain("declare function createFile");

@@ -63,6 +63,36 @@ describe("createExecuteTool executor selection", () => {
     expect(tool.description).toContain("Call this top-level codemode tool");
   });
 
+  test("omits jev from tool and parameter descriptions when unarmed", () => {
+    const tool = createExecuteTool({
+      typeDefs: "",
+      bindings,
+      getJevArmed: () => false,
+      timeout: 1_000,
+      executor: { kind: "quickjs" },
+    });
+    const codeSchema = (tool.parameters as { properties: { code: { description: string } } })
+      .properties.code;
+
+    expect(tool.description).not.toContain("jev.ask");
+    expect(codeSchema.description).not.toContain("jev");
+  });
+
+  test("mentions jev in tool and parameter descriptions when armed", () => {
+    const tool = createExecuteTool({
+      typeDefs: "",
+      bindings,
+      getJevArmed: () => true,
+      timeout: 1_000,
+      executor: { kind: "quickjs" },
+    });
+    const codeSchema = (tool.parameters as { properties: { code: { description: string } } })
+      .properties.code;
+
+    expect(tool.description).toContain("jev.ask");
+    expect(codeSchema.description).toContain("jev.ask()");
+  });
+
   test("renders tool call and result as TUI components", () => {
     const tool = createExecuteTool({
       typeDefs: "",

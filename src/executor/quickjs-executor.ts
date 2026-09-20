@@ -43,6 +43,8 @@ export class QuickJsExecutor implements CodeExecutor {
       signal?: AbortSignal;
       /** Install the job-only createFile global (set only by runJob()). */
       enableCreateFile?: boolean;
+      /** Install the optional jev.ask global when TypeSafe is armed. */
+      enableJev?: boolean;
     },
   ): Promise<ExecuteResult> {
     if (options?.signal?.aborted) {
@@ -185,6 +187,13 @@ export class QuickJsExecutor implements CodeExecutor {
 						});
 					}
 				});
+				${
+          options?.enableJev
+            ? `globalThis.jev = {
+					ask(state, questions) { return __hostCall('jev.ask', { state, questions }); }
+				};`
+            : ""
+        }
 				globalThis.console = { log: print, info: print, warn: print, error: print };
 			`);
       if (setup.error) {
@@ -282,6 +291,7 @@ export class QuickJsExecutor implements CodeExecutor {
         globalThis.codemode = undefined;
         globalThis.mcp = undefined;
         globalThis.cli = undefined;
+        globalThis.jev = undefined;
         globalThis.print = undefined;
         globalThis.console = undefined;
         globalThis.π = undefined;

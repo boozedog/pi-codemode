@@ -104,6 +104,36 @@ describe("QuickJsExecutor", () => {
     expect(calls).toEqual([{ path: "a.txt" }]);
   });
 
+  test("exposes jev.ask only when enableJev is set", async () => {
+    const executor = new QuickJsExecutor({ timeout: 5_000 });
+    const calls: unknown[] = [];
+    const fns = {
+      jev: {
+        ask: async (args: unknown) => {
+          calls.push(args);
+          return { urgent: { type: "noul", noul: 0.8 } };
+        },
+      },
+    };
+
+    const hidden = await executor.execute(`return typeof globalThis.jev;`, [
+      { name: "codemode", fns },
+    ]);
+    expect(hidden.error).toBeUndefined();
+    expect(hidden.result).toBe("undefined");
+
+    const armed = await executor.execute(
+      `return await jev.ask("hello", { urgent: { type: "noul", instructions: "?" } });`,
+      [{ name: "codemode", fns }],
+      { enableJev: true },
+    );
+    expect(armed.error).toBeUndefined();
+    expect(armed.result).toEqual({ urgent: { type: "noul", noul: 0.8 } });
+    expect(calls).toEqual([
+      { state: "hello", questions: { urgent: { type: "noul", instructions: "?" } } },
+    ]);
+  });
+
   test("does not expose file tools through codemode namespace", async () => {
     const executor = new QuickJsExecutor({ timeout: 5_000 });
     const result = await executor.execute(`return typeof codemode.replace_in_file;`, [

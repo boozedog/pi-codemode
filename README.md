@@ -93,6 +93,37 @@ Generated code only receives explicit globals:
 - `cli.<tool>.<operation>(args)` calls configured typed CLI capabilities.
 - `print(...args)` emits result output.
 - `π.key` reads string constants passed in the `strings` parameter.
+- `jev.ask(state, questions)` _(optional)_ calls TypeSafe System One for calibrated **noul**, **choice**, and **score** answers composed inside your TypeScript program. Available only when a TypeSafe API key is configured; otherwise the global, types, and HTTP client are absent.
+
+### Optional `jev.ask` (TypeSafe)
+
+When a TypeSafe API key is present, Codemode injects guest `jev.ask` into QuickJS and the type checker. Without a key, Codemode is unchanged: no `jev` global, no HTTP, and no `@typesafe-ai/sdk` dependency.
+
+Key resolution (first present wins):
+
+1. `TYPESAFE_API_KEY` environment variable
+2. `jev.apiKeyFile` in `codemode.json` (if set)
+3. `~/.pi/agent/secrets/typesafe_api_key` (file contents, trimmed)
+
+```ts
+const answers = await jev.ask(
+  { snippet: issueTitle },
+  {
+    urgent: { type: "noul", instructions: "Is this customer-impacting?" },
+    area: {
+      type: "choice",
+      instructions: "Primary area",
+      criteria: { billing: "payments", bug: "defect", docs: "documentation" },
+    },
+  },
+);
+
+if (answers.urgent?.type === "noul" && answers.urgent.noul > 0.7) {
+  return { escalate: true, area: answers.area };
+}
+```
+
+Slice state before calling; ask one factor per question; compose thresholds in TypeScript. Do not use Jev to choose which `cli.*` or `mcp.*` tools to call. `/codemode jev` reports armed vs not armed without printing the key.
 
 ### File edits
 

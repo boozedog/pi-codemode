@@ -16,12 +16,19 @@ import {
   generateMcpSummaryForPrompt,
   generateParamSummary,
 } from "./type-generator.js";
-import { createExecuteTool } from "./execute-tool.js";
+import { buildCodemodeToolDescription, createExecuteTool } from "./execute-tool.js";
 import { createMcpClient, type McpClient } from "./mcp-client.js";
 import { createToolBindings } from "./tool-bindings.js";
 import { loadConfig, type CodemodeConfig, type CodemodeMode } from "./config.js";
 import { createFileTools, type FileScope } from "./file-tools.js";
-import { generateNativeEditGuidance, generateSystemPromptAddition } from "./system-prompt.js";
+import {
+  formatJevStatus,
+  generateNativeEditGuidance,
+  generateSystemPromptAddition,
+} from "./system-prompt.js";
+import { createJevAsk } from "./jev/client.js";
+import { resolveJevApiKey } from "./jev/key.js";
+import type { JevAsk } from "./jev/types.js";
 import type { SendMessageFn, SendMessageParams } from "./tool-bindings.js";
 import { executeCode } from "./execute-tool.js";
 import {
@@ -71,6 +78,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   let refreshing = false;
   /** Startup problems to surface via UI once session_start provides a context. */
   const startupWarnings: string[] = [];
+  let jevAsk: JevAsk | undefined;
 
   // Initialize the TypeScript type checker (pre-loads lib files, ~50ms)
   initTypeChecker();
@@ -115,8 +123,26 @@ export default function codemodeExtension(pi: ExtensionAPI) {
     mcpServers = [];
   }
 
+  function isJevArmed(): boolean {
+    return jevAsk !== undefined;
+  }
+
+  function refreshJev(nextConfig = config): void {
+    const apiKey = resolveJevApiKey({ jevConfig: nextConfig.jev });
+    jevAsk = apiKey
+      ? createJevAsk({
+          apiKey,
+          model: nextConfig.jev?.model,
+          timeoutMs: nextConfig.jev?.timeoutMs,
+          stateMaxChars: nextConfig.jev?.stateMaxChars,
+        })
+      : undefined;
+  }
+
+  refreshJev();
+
   // --- Build type definitions ---
-  let builtinTypeDefs = generateBuiltinTypeDefs({ cli: config.cli });
+  let builtinTypeDefs = generateBuiltinTypeDefs({ cli: config.cli, jev: isJevArmed() });
   let mcpTypeDefs = generateMcpServerTypeDefs(mcpServers);
   let typeCheckerTypeDefs = builtinTypeDefs + "\n" + mcpTypeDefs;
   let mcpSummary = generateMcpSummaryForPrompt(mcpServers);
@@ -141,6 +167,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       onUpdate,
       sendMessage: makeSendMessageSink(mode),
       enableCreateFile,
+      jev: jevAsk,
     });
   }
 
@@ -169,6 +196,8 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   const executeTool = createExecuteTool({
     typeDefs: typeCheckerTypeDefs,
     getTypeDefs: () => typeCheckerTypeDefs,
+    getDescription: () => buildCodemodeToolDescription(isJevArmed()),
+    getJevArmed: () => isJevArmed(),
     getBindings: ({ signal, onUpdate, cwd, mode }) =>
       getBindings(cwd ?? process.cwd(), signal, onUpdate, mode),
     timeout: config.executor?.timeoutMs ?? 120_000,
@@ -227,7 +256,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event: { systemPrompt: string }) => {
     const addition =
       currentMode !== "off"
-        ? generateSystemPromptAddition(builtinTypeDefs, mcpSummary, currentMode)
+        ? generateSystemPromptAddition(builtinTypeDefs, mcpSummary, currentMode, isJevArmed())
         : generateNativeEditGuidance();
 
     return {
@@ -247,9 +276,13 @@ export default function codemodeExtension(pi: ExtensionAPI) {
         await refreshSession(ctx);
         return;
       }
+      if (requested === "jev") {
+        ctx.ui.notify(formatJevStatus(isJevArmed()), "info");
+        return;
+      }
       const mode = requested as CodemodeMode | undefined;
       if (mode && !["off", "on", "yolo"].includes(mode)) {
-        ctx.ui.notify("Usage: /codemode [on|yolo|off|refresh]", "warning");
+        ctx.ui.notify("Usage: /codemode [on|yolo|off|refresh|jev]", "warning");
         return;
       }
       if (policyLocked) {
@@ -310,7 +343,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
    * current `mcpServers` and `config`. Shared by config refresh and tool re-list.
    */
   function regenerateDeclarations() {
-    const nextBuiltin = generateBuiltinTypeDefs({ cli: config.cli });
+    const nextBuiltin = generateBuiltinTypeDefs({ cli: config.cli, jev: isJevArmed() });
     const nextMcp = generateMcpServerTypeDefs(mcpServers);
     builtinTypeDefs = nextBuiltin;
     mcpTypeDefs = nextMcp;
@@ -363,9 +396,10 @@ export default function codemodeExtension(pi: ExtensionAPI) {
         }
       }
 
-      // 3. Commit the new config, then regenerate declarations and the index.
+      // 3. Commit the new config, refresh Jev, then regenerate declarations and the index.
       config = nextConfig;
       policyLocked = config.lock === true;
+      refreshJev(config);
       regenerateDeclarations();
 
       // 4. Report the capability summary (or failures).
@@ -399,7 +433,13 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       })();
       const entry = packageInfo?.entry ?? resolveJobEntry(invocation.job, ctx.cwd || process.cwd());
       const jobTypeDefs =
-        generateBuiltinTypeDefs({ cli: config.cli, createFile: true }) + "\n" + mcpTypeDefs;
+        generateBuiltinTypeDefs({
+          cli: config.cli,
+          createFile: true,
+          jev: isJevArmed(),
+        }) +
+        "\n" +
+        mcpTypeDefs;
       const result = await executeCode(
         readJobEntry(entry),
         jobTypeDefs,
@@ -478,7 +518,10 @@ export default function codemodeExtension(pi: ExtensionAPI) {
 
     if (mode === "off") {
       deactivateCodemode();
-      ctx.ui.notify("Codemode off — normal Pi tools active", "info");
+      ctx.ui.notify(
+        `Codemode off — normal Pi tools active\n${formatJevStatus(isJevArmed())}`,
+        "info",
+      );
       return;
     }
 
@@ -492,7 +535,7 @@ export default function codemodeExtension(pi: ExtensionAPI) {
       );
       return;
     }
-    ctx.ui.notify(`Codemode ${mode} mode enabled`, "info");
+    ctx.ui.notify(`Codemode ${mode} mode enabled\n${formatJevStatus(isJevArmed())}`, "info");
   }
 
   function codemodeTools(mode: Exclude<CodemodeMode, "off">) {

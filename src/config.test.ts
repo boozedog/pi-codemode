@@ -269,6 +269,29 @@ describe("loadConfig", () => {
     );
   });
 
+  test("deep-merges jev config between global and project files", async () => {
+    const homeDir = await tempDir();
+    const projectDir = await tempDir();
+    await mkdir(join(homeDir, ".pi", "agent"), { recursive: true });
+    await mkdir(join(projectDir, ".pi"), { recursive: true });
+    await writeFile(
+      join(homeDir, ".pi", "agent", "codemode.json"),
+      JSON.stringify({ jev: { timeoutMs: 5_000, model: "jev-latest" } }),
+    );
+    await writeFile(
+      join(projectDir, ".pi", "codemode.json"),
+      JSON.stringify({ jev: { stateMaxChars: 4_000 } }),
+    );
+
+    const config = loadConfig({ homeDir, projectDir });
+
+    expect(config.jev).toEqual({
+      timeoutMs: 5_000,
+      model: "jev-latest",
+      stateMaxChars: 4_000,
+    });
+  });
+
   test("rejects unsupported executor types", async () => {
     const projectDir = await tempDir();
     await mkdir(join(projectDir, ".pi"), { recursive: true });

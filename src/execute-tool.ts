@@ -62,22 +62,24 @@ export interface ExecuteToolOptions {
   maxOutputSize?: number;
   /** Sandbox executor selection. Defaults to QuickJS. */
   executor?: ExecutorFactoryOptions;
+  /** Build the Pi-facing tool description (e.g. when optional guest APIs change). */
+  getDescription?: () => string;
+  /** Whether guest jev.ask is armed (drives parameter schema text). */
+  getJevArmed?: () => boolean;
 }
 
-/**
- * Create the codemode tool definition.
- */
-export function createExecuteTool(options: ExecuteToolOptions): ToolDefinition {
-  const { typeDefs, getTypeDefs, bindings, getBindings, timeout, maxOutputSize, executor } =
-    options;
-  if (!bindings && !getBindings) {
-    throw new Error("createExecuteTool requires bindings or getBindings");
-  }
+/** `code` parameter description; jev is mentioned only when armed. */
+export function buildCodemodeCodeParamDescription(jevArmed = false): string {
+  const jevPart = jevArmed ? "jev.ask(), " : "";
+  return `TypeScript code body. Has access to read(), codemode.search_tools(), codemode.describe_tools(), mcp.<namespace>.<tool>() for MCP, ${jevPart}print(), and π.keyName from strings parameter. File mutation helpers are not available inside guest code; use top-level patch editing instead.`;
+}
 
-  return {
-    name: "codemode",
-    label: "Codemode",
-    description: `Call this top-level codemode tool to execute TypeScript code that calls tools as typed functions.
+/** Pi-facing codemode tool description; jev is listed only when armed. */
+export function buildCodemodeToolDescription(jevArmed = false): string {
+  const jevLine = jevArmed
+    ? "- jev.ask(state, questions) → TypeSafe noul/choice/score classifier\n"
+    : "";
+  return `Call this top-level codemode tool to execute TypeScript code that calls tools as typed functions.
 Write code using top-level file tools and the in-guest codemode.* API. Your code is type-checked before execution.
 
 Available tools in code:
@@ -86,31 +88,60 @@ Available tools in code:
 - codemode.search_tools({ query }) → discover available tools
 - codemode.describe_tools({ namespace, tool? }) → browse MCP tools
 - mcp.<namespace>.<tool>(args) → call MCP tools (e.g., mcp.github.search_issues())
-- codemode.progress(msg) → stream progress to UI
+${jevLine}- codemode.progress(msg) → stream progress to UI
 - sendMessage({ content, display?, details?, toModel? }) → emit human-facing output; set toModel: true to opt into model context
 - print(...) → optional diagnostic/progress output; avoid printing values you also return
 - π.keyName → string constants from the 'strings' parameter
 
-Return the final value you want in the result. Prefer return over print for final output; Type errors are returned for correction.`,
+Return the final value you want in the result. Prefer return over print for final output; Type errors are returned for correction.`;
+}
 
-    parameters: objectSchema(
-      {
-        code: stringSchema({
-          description:
-            "TypeScript code body. Has access to read(), codemode.search_tools(), codemode.describe_tools(), mcp.<namespace>.<tool>() for MCP, print(), and π.keyName from strings parameter. File mutation helpers are not available inside guest code; use top-level patch editing instead.",
-        }),
-        strings: recordSchema(stringSchema(), stringSchema(), {
-          description:
-            "Named string constants injected into the code as π.keyName. Use this for file content, templates, or any text that would be hard to quote inside JavaScript code. The strings only need standard JSON escaping — no JS string literal escaping required.",
-        }),
-        resultFormat: stringSchema({
-          enum: ["json", "structured", "text", "plain", "raw", "auto"],
-          description:
-            "Optional output rendering preference. json/structured preserves structured JSON, text/plain strips ANSI and renders stdout-like results as plain text, raw preserves exact stdout/stderr, auto chooses a readable default.",
-        }),
-      },
-      ["code"],
-    ),
+export function buildCodemodeToolParameters(jevArmed = false) {
+  return objectSchema(
+    {
+      code: stringSchema({
+        description: buildCodemodeCodeParamDescription(jevArmed),
+      }),
+      strings: recordSchema(stringSchema(), stringSchema(), {
+        description:
+          "Named string constants injected into the code as π.keyName. Use this for file content, templates, or any text that would be hard to quote inside JavaScript code. The strings only need standard JSON escaping — no JS string literal escaping required.",
+      }),
+      resultFormat: stringSchema({
+        enum: ["json", "structured", "text", "plain", "raw", "auto"],
+        description:
+          "Optional output rendering preference. json/structured preserves structured JSON, text/plain strips ANSI and renders stdout-like results as plain text, raw preserves exact stdout/stderr, auto chooses a readable default.",
+      }),
+    },
+    ["code"],
+  );
+}
+
+/**
+ * Create the codemode tool definition.
+ */
+export function createExecuteTool(options: ExecuteToolOptions): ToolDefinition {
+  const {
+    typeDefs,
+    getTypeDefs,
+    bindings,
+    getBindings,
+    timeout,
+    maxOutputSize,
+    executor,
+    getDescription,
+    getJevArmed,
+  } = options;
+  if (!bindings && !getBindings) {
+    throw new Error("createExecuteTool requires bindings or getBindings");
+  }
+
+  const resolveJevArmed = () => getJevArmed?.() ?? false;
+
+  const tool: ToolDefinition = {
+    name: "codemode",
+    label: "Codemode",
+    description: getDescription?.() ?? buildCodemodeToolDescription(resolveJevArmed()),
+    parameters: buildCodemodeToolParameters(resolveJevArmed()),
 
     async execute(
       _toolCallId: string,
@@ -287,6 +318,24 @@ Return the final value you want in the result. Prefer return over print for fina
       return new Text(theme.fg("success", "✓ ") + content + elapsed, 0, 0);
     },
   } as unknown as ToolDefinition;
+
+  if (getDescription) {
+    Object.defineProperty(tool, "description", {
+      get: getDescription,
+      enumerable: true,
+      configurable: true,
+    });
+  }
+
+  if (getDescription || getJevArmed) {
+    Object.defineProperty(tool, "parameters", {
+      get: () => buildCodemodeToolParameters(resolveJevArmed()),
+      enumerable: true,
+      configurable: true,
+    });
+  }
+
+  return tool;
 }
 
 function collapseMiddle(
@@ -392,6 +441,8 @@ export async function executeCode(
     executor?: ExecutorFactoryOptions;
     /** Enable the job-only createFile global (set only by runJob()). */
     enableCreateFile?: boolean;
+    /** Enable optional jev.ask global (defaults to bindings.jev presence). */
+    enableJev?: boolean;
   },
 ): Promise<ExecutionResult> {
   const start = performance.now();
@@ -446,6 +497,7 @@ export async function executeCode(
       args: options?.args,
       signal: options?.signal,
       enableCreateFile: options?.enableCreateFile,
+      enableJev: options?.enableJev ?? Boolean(bindings.jev),
     });
 
     return {

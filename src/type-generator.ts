@@ -11,6 +11,7 @@ import type { McpServerInfo } from "./search.js";
 import type { CliConfig } from "./config.js";
 import { configuredOperations } from "./cli.js";
 import { getCliOperationDefinition } from "./cli-operations.js";
+import { generateJevTypeDefs } from "./jev/types.js";
 
 // Top-level file tool descriptors mirror Pi's native tool names and schemas.
 const fileToolDescriptors: Record<string, { description?: string; inputSchema: JSONSchema7 }> = {
@@ -334,6 +335,7 @@ function cliOperationSignature(tool: string, operation: string): string {
 export function generateBuiltinTypeDefs(config?: {
   cli?: CliConfig;
   createFile?: boolean;
+  jev?: boolean;
 }): string {
   // Generate types from JSON Schema descriptors
   void fileToolDescriptors;
@@ -387,6 +389,7 @@ declare const π: Readonly<Record<string, string>>;
 declare const args: Readonly<Partial<Record<string, string>>>;
 
 ${generateCliTypeDefs(config?.cli)}
+${config?.jev ? `\n${generateJevTypeDefs()}` : ""}
 `;
 }
 
