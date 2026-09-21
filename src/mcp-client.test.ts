@@ -29,7 +29,14 @@ afterEach(async () => {
 const fixture = `
 const readline = require("readline");
 const rl = readline.createInterface({ input: process.stdin });
-const toolName = process.env.FIXTURE_TOOL || "search-issues";
+function toolName() {
+  if (process.env.FIXTURE_CHECK === "path-and-home") {
+    const hasPath = typeof process.env.PATH === "string" && process.env.PATH.length > 0;
+    const hasHome = typeof process.env.HOME === "string" && process.env.HOME.length > 0;
+    return hasPath && hasHome ? "path-and-home" : "missing-sdk-defaults";
+  }
+  return process.env.FIXTURE_TOOL || "search-issues";
+}
 rl.on("line", (line) => {
   const request = JSON.parse(line);
   if (request.method === "initialize") {
@@ -37,7 +44,7 @@ rl.on("line", (line) => {
   } else if (request.method === "notifications/initialized") {
     return;
   } else if (request.method === "tools/list") {
-    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { tools: [{ name: toolName, description: "Search", inputSchema: { type: "object" } }] } }) + "\\n");
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { tools: [{ name: toolName(), description: "Search", inputSchema: { type: "object" } }] } }) + "\\n");
   } else if (request.method === "tools/call") {
     const isError = request.params?.arguments?.fail === true;
     process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { content: [{ type: "text", text: isError ? "missing query" : "ok" }], isError } }) + "\\n");
@@ -260,6 +267,77 @@ describe("MCP helpers", () => {
       }),
     ).rejects.toThrow(/requires authentication|OAuth browser flows are not supported|401/);
     expect(kinds).toEqual(["http"]);
+  });
+});
+
+describe("stdio MCP env expansion", () => {
+  const envVar = "CODEMODE_TEST_FIXTURE_TOOL";
+
+  function stdioWithEnv(env: Record<string, string>) {
+    return { ...stdioServer(), env };
+  }
+
+  test("expands ${env:NAME} from the parent process at spawn time", async () => {
+    const previous = process.env[envVar];
+    process.env[envVar] = "list-issues";
+    try {
+      const client = await isolatedClient({
+        servers: { github: stdioWithEnv({ FIXTURE_TOOL: `\${env:${envVar}}` }) },
+      });
+      await client.ensureServerConnected("github");
+      expect(client.getServers()[0]?.tools[0]?.name).toBe("list-issues");
+      await expect(client.call("github", "list-issues", {})).resolves.toBe("ok");
+      await client.shutdown();
+    } finally {
+      if (previous === undefined) delete process.env[envVar];
+      else process.env[envVar] = previous;
+    }
+  });
+
+  test("omits keys when ${env:NAME} parent value is unset or empty", async () => {
+    const previous = process.env[envVar];
+    delete process.env[envVar];
+    try {
+      const client = await isolatedClient({
+        servers: { github: stdioWithEnv({ FIXTURE_TOOL: `\${env:${envVar}}` }) },
+      });
+      await client.ensureServerConnected("github");
+      expect(client.getServers()[0]?.tools[0]?.name).toBe("search-issues");
+      await client.shutdown();
+    } finally {
+      if (previous === undefined) delete process.env[envVar];
+      else process.env[envVar] = previous;
+    }
+  });
+
+  test("keeps SDK default env vars when config only adds interpolated keys", async () => {
+    const previous = process.env[envVar];
+    delete process.env[envVar];
+    try {
+      const client = await isolatedClient({
+        servers: {
+          github: {
+            ...stdioServer(),
+            env: { FIXTURE_TOOL: `\${env:${envVar}}`, FIXTURE_CHECK: "path-and-home" },
+          },
+        },
+      });
+      await client.ensureServerConnected("github");
+      expect(client.getServers()[0]?.tools[0]?.name).toBe("path-and-home");
+      await client.shutdown();
+    } finally {
+      if (previous === undefined) delete process.env[envVar];
+      else process.env[envVar] = previous;
+    }
+  });
+
+  test("passes non-interpolated env values as literal overlays", async () => {
+    const client = await isolatedClient({
+      servers: { github: stdioWithEnv({ FIXTURE_TOOL: "list-issues" }) },
+    });
+    await client.ensureServerConnected("github");
+    expect(client.getServers()[0]?.tools[0]?.name).toBe("list-issues");
+    await client.shutdown();
   });
 });
 

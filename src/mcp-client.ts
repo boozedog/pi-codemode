@@ -90,6 +90,27 @@ export function computeServerHash(def: McpServerConfig): string {
   return createHash("sha256").update(stableStringify(def)).digest("hex");
 }
 
+const STDIO_ENV_INTERPOLATION = /^\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}$/;
+
+/** Expand Cursor-style `${env:NAME}` in stdio MCP env values from the parent process. */
+export function expandStdioEnv(
+  env: Record<string, string> | undefined,
+  parentEnv: NodeJS.ProcessEnv = process.env,
+): Record<string, string> | undefined {
+  if (!env) return undefined;
+  const expanded: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    const match = value.match(STDIO_ENV_INTERPOLATION);
+    if (match) {
+      const parentValue = parentEnv[match[1]];
+      if (parentValue && parentValue.length > 0) expanded[key] = parentValue;
+      continue;
+    }
+    expanded[key] = value;
+  }
+  return Object.keys(expanded).length > 0 ? expanded : undefined;
+}
+
 export function flattenMcpContent(content: unknown[]): string {
   const text = content.flatMap((item) =>
     item && typeof item === "object" && "text" in item && typeof item.text === "string"
@@ -380,7 +401,7 @@ async function openClient(def: McpServerConfig, projectDir: string): Promise<Cli
     const transport = new StdioClientTransport({
       command: def.command,
       args: def.args,
-      env: def.env,
+      env: expandStdioEnv(def.env),
       cwd: def.cwd,
       stderr: def.debug ? "inherit" : "ignore",
     });
